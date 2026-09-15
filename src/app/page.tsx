@@ -1,69 +1,191 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Activity,
+  ArrowRight,
+  Columns2,
+  Gauge,
+  Layers,
+  Loader2,
+  Monitor,
+  Timer,
+} from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import type { Step } from "@/lib/types";
+
+const LAST_STATION = "apt.station.v1";
 
 export default function Home() {
+  const router = useRouter();
+  const [steps, setSteps] = useState<Step[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [splitMode, setSplitMode] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      const { data, error } = await supabase
+        .from("steps")
+        .select("*")
+        .order("sort_order");
+      if (error) setError("Could not reach the database. Check the connection.");
+      else setSteps(data as Step[]);
+      setLoading(false);
+    })();
+  }, []);
+
+  function go(ids: string[]) {
+    const qs = ids.map((id) => `step=${id}`).join("&");
+    localStorage.setItem(LAST_STATION, qs);
+    router.push(`/log?${qs}`);
+  }
+
+  function toggle(id: string) {
+    if (!splitMode) {
+      go([id]);
+      return;
+    }
+    setPicked((prev) => {
+      if (prev.includes(id)) return prev.filter((p) => p !== id);
+      if (prev.length >= 2) return [prev[1], id];
+      return [...prev, id];
+    });
+  }
+
+  const areas = Array.from(new Set(steps.map((s) => s.area)));
+  const resume =
+    typeof window !== "undefined" ? localStorage.getItem(LAST_STATION) : null;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <>
+      <header className="topbar">
+        <Layers size={20} color="#4c8df6" />
+        <div>
+          <h1>Armorlube Process Tracker</h1>
+          <div className="sub">Pick the station this iPad will run</div>
+        </div>
+        <div className="spacer" />
+        <button className="btn ghost" onClick={() => router.push("/dashboard")}>
+          <Gauge size={17} />
+          Dashboard
+        </button>
+      </header>
+
+      <main className="shell stack">
+        <div className="panel">
+          <div className="row">
+            <div className="seg">
+              <button
+                aria-pressed={!splitMode}
+                onClick={() => {
+                  setSplitMode(false);
+                  setPicked([]);
+                }}
+              >
+                <Monitor size={16} />
+                One station
+              </button>
+              <button
+                aria-pressed={splitMode}
+                onClick={() => {
+                  setSplitMode(true);
+                  setPicked([]);
+                }}
+              >
+                <Columns2 size={16} />
+                Split screen
+              </button>
+            </div>
+            <div className="spacer" />
+            {resume && !splitMode && (
+              <button
+                className="btn"
+                onClick={() => router.push(`/log?${resume}`)}
+              >
+                <Timer size={16} />
+                Back to last station
+              </button>
+            )}
+          </div>
+
+          <p className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
+            {splitMode
+              ? "Choose two steps to run side by side on one screen. Each half logs on its own."
+              : "The station stays put once chosen. Come back here any time to change it."}
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+        {loading && (
+          <div className="panel empty">
+            <Loader2 size={20} className="spin" />
+            <div style={{ marginTop: 8 }}>Loading stations</div>
+          </div>
+        )}
+
+        {error && <div className="panel err">{error}</div>}
+
+        {!loading && !error && (
+          <div className="stack">
+            {areas.map((area) => (
+              <div className="area-block" key={area}>
+                <div className="area-head">
+                  <Activity size={15} />
+                  {area}
+                </div>
+                {steps
+                  .filter((s) => s.area === area)
+                  .map((s) => (
+                    <button
+                      key={s.id}
+                      className="step-btn"
+                      aria-pressed={picked.includes(s.id)}
+                      onClick={() => toggle(s.id)}
+                    >
+                      {s.step_name}
+                      <span className="step-caps">
+                        {s.has_queue && <span className="badge">Queue</span>}
+                        {s.has_process && <span className="badge">Process</span>}
+                        {s.has_blast_type && (
+                          <span className="badge info">Blast type</span>
+                        )}
+                      </span>
+                      {!splitMode && <ArrowRight size={17} color="#6b7886" />}
+                    </button>
+                  ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {splitMode && (
+          <div className="panel row">
+            <div>
+              <div className="field-label" style={{ marginBottom: 2 }}>
+                Selected
+              </div>
+              <strong>
+                {picked.length === 0
+                  ? "Nothing picked yet"
+                  : picked
+                      .map((id) => steps.find((s) => s.id === id)?.step_name)
+                      .join("  +  ")}
+              </strong>
+            </div>
+            <div className="spacer" />
+            <button
+              className="btn primary"
+              disabled={picked.length !== 2}
+              onClick={() => go(picked)}
+            >
+              Open split screen
+              <ArrowRight size={17} />
+            </button>
+          </div>
+        )}
       </main>
-    </div>
+    </>
   );
 }
