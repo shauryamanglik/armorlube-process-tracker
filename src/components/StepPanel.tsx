@@ -11,9 +11,7 @@ import {
   LogIn,
   LogOut,
   Pencil,
-  Play,
   RotateCcw,
-  Square,
   Trash2,
   TriangleAlert,
   Users,
@@ -205,17 +203,26 @@ export default function StepPanel({
     return (data as Operator).id;
   }
 
+  /** What a waiting button is waiting on, in plain words. */
+  function waitingOn(f: TimeField): string {
+    if (f === "queue_out") return "Queue in not logged yet";
+    if (f === "process_in")
+      return step.has_queue ? "Queue out not logged yet" : "";
+    if (f === "process_out") return "Process in not logged yet";
+    return "";
+  }
+
   /** Whether this button is the natural next action for the current record. */
-  function expectation(f: TimeField): "ready" | "filled" | "outOfOrder" {
+  function expectation(f: TimeField): "ready" | "filled" | "waiting" {
     const v = existing?.[f] ?? null;
     if (v) return "filled";
     if (f === "queue_in") return "ready";
-    if (f === "queue_out") return existing?.queue_in ? "ready" : "outOfOrder";
+    if (f === "queue_out") return existing?.queue_in ? "ready" : "waiting";
     if (f === "process_in") {
       if (!step.has_queue) return "ready";
-      return existing?.queue_out ? "ready" : "outOfOrder";
+      return existing?.queue_out ? "ready" : "waiting";
     }
-    return existing?.process_in ? "ready" : "outOfOrder";
+    return existing?.process_in ? "ready" : "waiting";
   }
 
   async function press(f: TimeField, force?: "overwrite" | "new") {
@@ -236,7 +243,7 @@ export default function StepPanel({
 
     // Out of sequence presses need a second tap, which is what stops a
     // mis-hit turning into a bad record.
-    if (!force && expectation(f) === "outOfOrder" && armed !== f) {
+    if (!force && expectation(f) === "waiting" && armed !== f) {
       setArmed(f);
       return;
     }
@@ -511,34 +518,37 @@ export default function StepPanel({
                 const val = existing?.[f] ?? null;
                 const isIn = f.endsWith("_in");
 
+                const word = isIn ? "In" : "Out";
+
                 return (
                   <button
                     key={f}
-                    className={`tbtn ${
-                      isArmed ? "armed" : mode === "ready" ? "ready" : ""
-                    } ${mode === "filled" ? "filled" : ""}`}
+                    className={[
+                      "tbtn",
+                      isIn ? "in" : "out",
+                      isArmed ? "armed" : mode,
+                    ].join(" ")}
                     disabled={busy || !lotValid}
                     onClick={() => void press(f)}
                   >
                     <span className="t-top">
-                      {isIn ? <Play size={16} /> : <Square size={16} />}
-                      {isIn ? "Start" : "End"}
+                      {isIn ? <LogIn size={18} /> : <LogOut size={18} />}
+                      {p.name} {word.toLowerCase()}
                       {mode === "filled" && (
                         <span className="tick">
-                          <Check size={15} />
+                          <CircleCheck size={16} />
                         </span>
                       )}
                     </span>
                     {isArmed ? (
                       <span className="t-val">
-                        {isIn ? "Start" : "End"} is out of order. Tap again to
-                        record it.
+                        Out of order. Tap again to record it.
                       </span>
                     ) : val ? (
                       <span className="t-val mono">{formatStamp(val)}</span>
                     ) : (
                       <span className="t-val">
-                        {mode === "ready" ? "Tap to record" : "Not yet expected"}
+                        {mode === "ready" ? "Tap to record" : waitingOn(f)}
                       </span>
                     )}
                   </button>

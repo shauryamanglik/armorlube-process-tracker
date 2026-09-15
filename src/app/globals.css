@@ -384,12 +384,12 @@ button {
 }
 
 .phase.process {
-  border-left: 3px solid var(--run);
+  border-left: 3px solid var(--info);
 }
 
 .phase.process .phase-mark {
-  background: rgba(47, 191, 113, 0.13);
-  color: var(--run);
+  background: rgba(76, 141, 246, 0.14);
+  color: var(--info);
 }
 
 .phase-name {
@@ -432,32 +432,41 @@ button {
   }
 }
 
-/* one timestamp button */
+/* one timestamp button
+   Green means in, red means out, the same convention as the machine HMIs on
+   the floor. Solid fill when it is the expected next action, tinted outline
+   once recorded, dimmed outline when it is not that button's turn. */
 .tbtn {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
-  min-height: 82px;
-  padding: 13px 14px;
+  gap: 6px;
+  min-height: 88px;
+  padding: 14px;
   border-radius: var(--r-md);
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   background: var(--surface-2);
   color: var(--text-dim);
   text-align: left;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: filter 0.12s ease, border-color 0.12s ease;
 }
 
 .tbtn:active {
   transform: scale(0.99);
 }
 
+.tbtn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
 .tbtn .t-top {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
+  width: 100%;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
@@ -465,41 +474,79 @@ button {
   font-size: 14px;
 }
 
-/* the action the operator is actually expected to take next */
-.tbtn.ready {
-  background: var(--surface-3);
-  border-color: var(--line);
+/* expected next action, full colour */
+.tbtn.ready.in {
+  background: #1a9c56;
+  border-color: #27b569;
+  color: #eafff2;
 }
 
-.phase.queue .tbtn.ready {
-  border-color: rgba(240, 169, 46, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(240, 169, 46, 0.18);
+.tbtn.ready.in .t-top,
+.tbtn.ready.out .t-top {
+  color: #fff;
 }
 
-.phase.process .tbtn.ready {
-  border-color: rgba(47, 191, 113, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(47, 191, 113, 0.18);
+.tbtn.ready.out {
+  background: #c3363b;
+  border-color: #dc4449;
+  color: #ffeced;
+}
+
+/* not this button's turn, colour kept so it stays readable at a glance */
+.tbtn.waiting.in {
+  background: rgba(31, 125, 76, 0.13);
+  border-color: rgba(47, 191, 113, 0.32);
+  color: #6fc796;
+}
+
+.tbtn.waiting.in .t-top {
+  color: #6fc796;
+}
+
+.tbtn.waiting.out {
+  background: rgba(168, 51, 56, 0.13);
+  border-color: rgba(229, 72, 77, 0.32);
+  color: #e08b8e;
+}
+
+.tbtn.waiting.out .t-top {
+  color: #e08b8e;
 }
 
 /* already recorded */
-.tbtn.filled {
-  background: var(--surface);
-  border-color: var(--line-soft);
+.tbtn.filled.in {
+  background: rgba(31, 125, 76, 0.1);
+  border-color: rgba(47, 191, 113, 0.3);
+}
+
+.tbtn.filled.out {
+  background: rgba(168, 51, 56, 0.1);
+  border-color: rgba(229, 72, 77, 0.3);
 }
 
 .tbtn.filled .t-top {
-  color: var(--text-dim);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tbtn.filled.in .t-top {
+  color: #7fdda8;
+}
+
+.tbtn.filled.out .t-top {
+  color: #f0a1a4;
 }
 
 .tbtn.filled .t-val {
   color: var(--text);
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
 }
 
-/* out of sequence, needs a second tap */
+/* out of sequence, second tap required */
 .tbtn.armed {
+  background: #33270f;
   border-color: var(--hold);
-  background: #2a2113;
   color: var(--hold);
 }
 
@@ -508,14 +555,14 @@ button {
 }
 
 .tbtn:disabled {
-  opacity: 0.45;
+  opacity: 0.42;
   cursor: not-allowed;
 }
 
 .tick {
   margin-left: auto;
   display: inline-flex;
-  color: var(--run);
+  opacity: 0.85;
 }
 
 /* ---------- toggles ---------- */
