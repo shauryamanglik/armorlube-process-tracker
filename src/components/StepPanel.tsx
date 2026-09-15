@@ -10,12 +10,14 @@ import {
   Clock,
   Cog,
   Hourglass,
+  Link2,
   LogIn,
   LogOut,
   Pencil,
   RotateCcw,
   Trash2,
   TriangleAlert,
+  Unlink,
   Users,
   Wind,
 } from "lucide-react";
@@ -90,6 +92,9 @@ export default function StepPanel({
     null
   );
   const [routeBusy, setRouteBusy] = useState(false);
+  /** Queue out and process in are the same moment on most steps. Linked by
+   *  default, and the choice resets with each lot so it never carries over. */
+  const [linked, setLinked] = useState(true);
   const [editing, setEditing] = useState<LogRow | null>(null);
   const [tick, setTick] = useState(0);
 
@@ -146,6 +151,7 @@ export default function StepPanel({
 
   useEffect(() => {
     setArmed(null);
+    setLinked(true);
   }, [lotId]);
 
   const knownLot = useMemo(
@@ -178,9 +184,41 @@ export default function StepPanel({
   /** Blast type already stored on the record beats the local picker. */
   const effectiveBlast = existing?.blast_type ?? blastType ?? "";
 
+  const linkable = step.has_queue && step.has_process;
+
+  /**
+   * When linked, ending the queue also starts the process and the other way
+   * round. The partner is only filled when it is empty, so a later press can
+   * never silently rewrite a boundary that was already recorded.
+   */
+  function partnerPatch(
+    f: TimeField,
+    ts: string,
+    opId: string,
+    target: LogRow | null
+  ): Record<string, unknown> {
+    if (!linked || !linkable) return {};
+    if (f === "queue_out" && !target?.process_in) {
+      return { process_in: ts, process_in_by: opId };
+    }
+    if (f === "process_in" && !target?.queue_out) {
+      return { queue_out: ts, queue_out_by: opId };
+    }
+    return {};
+  }
+
   function stamp(): string {
     if (timeMode === "now") return new Date().toISOString();
     return phoenixToIso(customDate, customTime);
+  }
+
+  /** Name both timestamps when the link filled a partner. */
+  function logMessage(f: TimeField, payload: Record<string, unknown>): string {
+    const alsoQ = f !== "queue_out" && payload.queue_out !== undefined;
+    const alsoP = f !== "process_in" && payload.process_in !== undefined;
+    if (alsoQ) return `Process in and queue out recorded for ${lotId}.`;
+    if (alsoP) return `Queue out and process in recorded for ${lotId}.`;
+    return `${FIELD_LABEL[f]} recorded for ${lotId}.`;
   }
 
   async function addHistory(
@@ -294,19 +332,21 @@ export default function StepPanel({
           pass_no: 1,
           [f]: ts,
           [BY_FIELD[f]]: opId,
+          ...partnerPatch(f, ts, opId, null),
         };
         const { error } = await supabase.from("logs").insert(payload);
         if (error) {
           enqueue({ kind: "insert", table: "logs", payload, at: Date.now() });
           onToast("Saved on this iPad. It will sync when wifi returns.");
         } else {
-          onToast(`${FIELD_LABEL[f]} recorded for ${lotId}.`);
+          onToast(logMessage(f, payload));
         }
       } else {
         const prev = target[f];
         const payload: Record<string, unknown> = {
           [f]: ts,
           [BY_FIELD[f]]: opId,
+          ...partnerPatch(f, ts, opId, target),
         };
         if (step.has_blast_type && blastType && !target.blast_type) {
           payload.blast_type = blastType;
@@ -326,7 +366,7 @@ export default function StepPanel({
           onToast("Saved on this iPad. It will sync when wifi returns.");
         } else {
           if (prev) await addHistory(target.id, f, prev, ts);
-          onToast(`${FIELD_LABEL[f]} recorded for ${lotId}.`);
+          onToast(logMessage(f, payload));
         }
       }
 
@@ -478,6 +518,15 @@ export default function StepPanel({
     if (!inV) return null;
     const end = outV ? new Date(outV).getTime() : Date.now();
     return formatDuration(end - new Date(inV).getTime());
+  }
+
+  /** True when queue out and process in hold the same instant, which only
+   *  happens when the two were recorded together. */
+  function linkFilled(f: TimeField): boolean {
+    if (f !== "queue_out" && f !== "process_in") return false;
+    const q = existing?.queue_out;
+    const pr = existing?.process_in;
+    return Boolean(q && pr && q === pr);
   }
 
   const arrivedFrom = existing?.auto_from_step_id
@@ -652,8 +701,9 @@ export default function StepPanel({
 
       {/* the phases */}
       <div className="phases">
-        {phases.map((p) => (
-          <section className={`phase ${p.id}`} key={p.id}>
+        {phases.map((p, idx) => (
+          <div key={p.id} style={{ display: "contents" }}>
+          <section className={`phase ${p.id}`}>
             <div className="phase-head">
               <span className="phase-mark">{p.icon}</span>
               <div style={{ minWidth: 0 }}>
@@ -704,6 +754,12 @@ export default function StepPanel({
                     ) : val ? (
                       <>
                         <span className="t-val mono">{formatStamp(val)}</span>
+                        {linkFilled(f) && (
+                          <span className="link-note">
+                            <Link2 size={12} />
+                            Set with {f === "queue_out" ? "process in" : "queue out"}
+                          </span>
+                        )}
                         {arrivedFrom && f === entryField(step) && (
                           <span className="arrived">
                             <CornerDownRight size={12} />
@@ -721,6 +777,24 @@ export default function StepPanel({
               })}
             </div>
           </section>
+
+          {linkable && idx === 0 && phases.length === 2 && (
+            <div className={`link-strip ${linked ? "on" : ""}`}>
+              <span className="link-line" />
+              <button
+                className="link-toggle"
+                onClick={() => setLinked((v) => !v)}
+                aria-pressed={linked}
+              >
+                {linked ? <Link2 size={14} /> : <Unlink size={14} />}
+                {linked
+                  ? "Queue out starts the process"
+                  : "Logged separately"}
+              </button>
+              <span className="link-line" />
+            </div>
+          )}
+          </div>
         ))}
       </div>
 

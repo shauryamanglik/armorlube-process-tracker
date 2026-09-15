@@ -1081,3 +1081,62 @@ tbody tr:last-child td {
   opacity: 0.85;
   margin-top: 2px;
 }
+
+/* ---------- link strip between queue and process ----------
+   Sits in the gap between the two phase cards and shows, spatially, that
+   ending the queue and starting the process are the same moment. */
+
+.link-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -6px 0;
+  padding: 0 14px;
+}
+
+.link-line {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.link-strip.on .link-line {
+  background: linear-gradient(
+    90deg,
+    rgba(240, 169, 46, 0.5),
+    rgba(76, 141, 246, 0.5)
+  );
+}
+
+.link-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+
+.link-strip.on .link-toggle {
+  border-color: rgba(76, 141, 246, 0.45);
+  background: #16202f;
+  color: #9cc0ff;
+}
+
+.link-toggle:hover {
+  filter: brightness(1.15);
+}
+
+.link-note {
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
