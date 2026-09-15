@@ -2,10 +2,17 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, CloudOff, Gauge, Loader2, Repeat } from "lucide-react";
+import {
+  Boxes,
+  CheckCircle2,
+  CloudOff,
+  Gauge,
+  Loader2,
+  Repeat,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { drain, pendingCount, watchConnection } from "@/lib/offline";
-import type { Operator, Step } from "@/lib/types";
+import type { ActiveLot, Operator, Step } from "@/lib/types";
 import StepPanel from "@/components/StepPanel";
 
 function LogScreen() {
@@ -20,6 +27,16 @@ function LogScreen() {
   const [online, setOnline] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [lots, setLots] = useState<ActiveLot[]>([]);
+
+  const loadLots = useCallback(async () => {
+    const { data } = await supabase
+      .from("active_lots")
+      .select("*")
+      .order("last_activity", { ascending: false });
+    if (data) setLots(data as ActiveLot[]);
+  }, []);
+
   const loadOperators = useCallback(async () => {
     const { data } = await supabase.from("operators").select("*").order("name");
     if (data) setOperators(data as Operator[]);
@@ -29,10 +46,16 @@ function LogScreen() {
     void (async () => {
       const { data } = await supabase.from("steps").select("*").order("sort_order");
       if (data) setSteps(data as Step[]);
-      await loadOperators();
+      await Promise.all([loadOperators(), loadLots()]);
       setLoading(false);
     })();
-  }, [loadOperators]);
+  }, [loadOperators, loadLots]);
+
+  // Another iPad may finish a lot at a different step, so refresh the list.
+  useEffect(() => {
+    const t = setInterval(() => void loadLots(), 45000);
+    return () => clearInterval(t);
+  }, [loadLots]);
 
   useEffect(() => {
     const stop = watchConnection();
@@ -104,6 +127,11 @@ function LogScreen() {
         </div>
         <div className="spacer" />
 
+        <span className="badge" title="Lots currently on the line">
+          <Boxes size={13} />
+          {lots.length} on the line
+        </span>
+
         <span className="badge" title={online ? "Connected" : "No connection"}>
           <span
             className={`sync-dot ${
@@ -145,7 +173,9 @@ function LogScreen() {
               <StepPanel
                 step={s}
                 operators={operators}
+                lots={lots}
                 onOperatorsChanged={() => void loadOperators()}
+                onLotsChanged={() => void loadLots()}
                 compact={split}
                 onToast={setToast}
               />

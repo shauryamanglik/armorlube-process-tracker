@@ -145,8 +145,8 @@ export default function EditLogModal({
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal stack" onClick={(e) => e.stopPropagation()}>
-        <div className="row">
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="row" style={{ position: "sticky", top: -22, background: "var(--surface)", paddingTop: 2, paddingBottom: 6, zIndex: 2 }}>
           <h3>Edit record</h3>
           <div className="spacer" />
           <button className="btn sm icon ghost" onClick={onClose} aria-label="Close">

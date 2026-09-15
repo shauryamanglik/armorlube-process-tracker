@@ -13,6 +13,17 @@ export type Step = {
   has_process: boolean;
   has_blast_type: boolean;
   sort_order: number;
+  is_entry?: boolean;
+  is_final?: boolean;
+};
+
+export type ActiveLot = {
+  lot_id: string;
+  step_count: number;
+  last_activity: string;
+  furthest_step: number;
+  last_step: string;
+  last_area: string;
 };
 
 export type BlastType = "Manual Blasting" | "Auto Blasting";

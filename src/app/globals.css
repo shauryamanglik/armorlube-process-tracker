@@ -97,11 +97,22 @@ button {
   z-index: 40;
 }
 
+.topbar {
+  flex-wrap: wrap;
+}
+
+.topbar > div:first-of-type {
+  min-width: 0;
+}
+
 .topbar h1 {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar .sub {
@@ -130,6 +141,15 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+}
+
+/* Flex children shrink by default. Inside a scrolling column that squashes
+   content until it overlaps, so every stacked child holds its height. */
+.stack > *,
+.modal > * {
+  flex-shrink: 0;
+  min-width: 0;
 }
 
 .row {
@@ -321,76 +341,181 @@ button {
   font-weight: 600;
 }
 
-/* ---------- the big action buttons ---------- */
+/* ---------- phase cards ----------
+   Queue and process are separate bordered cards with their own colour and
+   icon, so the two pairs of buttons can never be confused for each other. */
 
-.actions {
+.phases {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
-.actions.two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.phase {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.action {
-  position: relative;
+.phase-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.phase-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.phase.queue {
+  border-left: 3px solid var(--hold);
+}
+
+.phase.queue .phase-mark {
+  background: rgba(240, 169, 46, 0.13);
+  color: var(--hold);
+}
+
+.phase.process {
+  border-left: 3px solid var(--run);
+}
+
+.phase.process .phase-mark {
+  background: rgba(47, 191, 113, 0.13);
+  color: var(--run);
+}
+
+.phase-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.phase-sub {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+
+.phase-live {
+  margin-left: auto;
+  text-align: right;
+  flex: none;
+}
+
+.phase-live .n {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.phase-live .l {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.phase-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+  padding: 14px 15px 15px;
+}
+
+@media (max-width: 420px) {
+  .phase-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* one timestamp button */
+.tbtn {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  min-height: 104px;
-  padding: 16px 18px;
-  border-radius: var(--r-lg);
-  border: 1px solid transparent;
+  gap: 5px;
+  min-height: 82px;
+  padding: 13px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-dim);
   text-align: left;
-  transition: transform 0.08s ease, filter 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-.action:active {
-  transform: scale(0.985);
+.tbtn:active {
+  transform: scale(0.99);
 }
 
-.action .a-title {
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+.tbtn .t-top {
   display: flex;
   align-items: center;
-  gap: 9px;
-}
-
-.action .a-value {
+  gap: 8px;
   font-size: 15px;
-  opacity: 0.9;
+  font-weight: 600;
+  color: var(--text);
 }
 
-.action .a-empty {
+.tbtn .t-val {
   font-size: 14px;
-  opacity: 0.68;
 }
 
-.action.in {
-  background: linear-gradient(180deg, #1f7f4c 0%, #176039 100%);
-  border-color: #2b9a5e;
-  color: #eafff2;
+/* the action the operator is actually expected to take next */
+.tbtn.ready {
+  background: var(--surface-3);
+  border-color: var(--line);
 }
 
-.action.out {
-  background: linear-gradient(180deg, #a83338 0%, #7e2529 100%);
-  border-color: #c04146;
-  color: #ffeded;
+.phase.queue .tbtn.ready {
+  border-color: rgba(240, 169, 46, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(240, 169, 46, 0.18);
 }
 
-.action.done {
-  filter: saturate(0.42) brightness(0.74);
+.phase.process .tbtn.ready {
+  border-color: rgba(47, 191, 113, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(47, 191, 113, 0.18);
 }
 
-.action .a-stamp {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-  font-size: 13px;
-  opacity: 0.8;
+/* already recorded */
+.tbtn.filled {
+  background: var(--surface);
+  border-color: var(--line-soft);
+}
+
+.tbtn.filled .t-top {
+  color: var(--text-dim);
+}
+
+.tbtn.filled .t-val {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* out of sequence, needs a second tap */
+.tbtn.armed {
+  border-color: var(--hold);
+  background: #2a2113;
+  color: var(--hold);
+}
+
+.tbtn.armed .t-top {
+  color: var(--hold);
+}
+
+.tbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tick {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--run);
 }
 
 /* ---------- toggles ---------- */
@@ -614,9 +739,17 @@ tbody tr:last-child td {
   border-radius: var(--r-lg);
   width: 100%;
   max-width: 560px;
-  max-height: 90dvh;
+  max-height: 88dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal .grid-2 {
+  gap: 10px;
 }
 
 .modal h3 {
@@ -704,4 +837,121 @@ tbody tr:last-child td {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ---------- lot picker ---------- */
+
+.lot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.lot-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  text-align: left;
+  transition: border-color 0.12s ease, background 0.12s ease;
+  flex-shrink: 0;
+}
+
+.lot-row:hover {
+  background: var(--surface-3);
+}
+
+.lot-row[aria-pressed="true"] {
+  border-color: var(--info);
+  background: #14243c;
+}
+
+.lot-row .lid {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.lot-row .where {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lot-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  font-size: 13.5px;
+  line-height: 1.45;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+}
+
+.lot-status.new {
+  border-color: #244a86;
+  background: #121d2e;
+  color: #9cc0ff;
+}
+
+.lot-status.known {
+  border-color: var(--run-deep);
+  background: #12231b;
+  color: #7fdda8;
+}
+
+.lot-status.repeat {
+  border-color: #6b4d15;
+  background: #271f12;
+  color: var(--hold);
+}
+
+.lot-status svg {
+  flex: none;
+}
+
+/* ---------- misc layout guards ---------- */
+
+.row > * {
+  min-width: 0;
+}
+
+.panel {
+  min-width: 0;
+}
+
+.split > * {
+  min-width: 0;
+}
+
+.log-item > div:first-child {
+  overflow: hidden;
+}
+
+.log-item .lot {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seg {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

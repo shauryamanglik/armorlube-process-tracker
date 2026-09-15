@@ -2,23 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
+  CalendarClock,
   Check,
+  CircleCheck,
   Clock,
-  History,
+  Cog,
+  Hourglass,
   LogIn,
   LogOut,
   Pencil,
-  Plus,
+  Play,
   RotateCcw,
+  Square,
   Trash2,
+  TriangleAlert,
   Users,
+  Wind,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { enqueue } from "@/lib/offline";
 import {
   FIELD_LABEL,
   LOT_PATTERN,
+  type ActiveLot,
   type BlastType,
   type LogRow,
   type Operator,
@@ -27,31 +33,33 @@ import {
 } from "@/lib/types";
 import {
   formatClock,
+  formatDuration,
   formatStamp,
   nowClockInPhoenix,
   phoenixToIso,
   todayInPhoenix,
 } from "@/lib/time";
 import EditLogModal from "./EditLogModal";
+import LotPicker, { type LotState } from "./LotPicker";
 
 type Props = {
   step: Step;
   operators: Operator[];
+  lots: ActiveLot[];
   onOperatorsChanged: () => void;
+  onLotsChanged: () => void;
   compact?: boolean;
   onToast: (msg: string) => void;
 };
 
-type Conflict = {
-  field: TimeField;
-  log: LogRow;
-  stamp: string;
-};
+type Conflict = { field: TimeField; log: LogRow; stamp: string };
 
 export default function StepPanel({
   step,
   operators,
+  lots,
   onOperatorsChanged,
+  onLotsChanged,
   compact,
   onToast,
 }: Props) {
@@ -63,21 +71,26 @@ export default function StepPanel({
   const [timeMode, setTimeMode] = useState<"now" | "custom">("now");
   const [customDate, setCustomDate] = useState(todayInPhoenix());
   const [customTime, setCustomTime] = useState(nowClockInPhoenix());
-  const [logs, setLogs] = useState<LogRow[]>([]);
+
+  const [recent, setRecent] = useState<LogRow[]>([]);
+  /** The record this exact lot already has at this step, fetched directly. */
+  const [existing, setExisting] = useState<LogRow | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+
   const [busy, setBusy] = useState(false);
+  const [armed, setArmed] = useState<TimeField | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [editing, setEditing] = useState<LogRow | null>(null);
+  const [tick, setTick] = useState(0);
 
   const lotValid = LOT_PATTERN.test(lotId);
 
-  const fields = useMemo(() => {
-    const f: TimeField[] = [];
-    if (step.has_queue) f.push("queue_in", "queue_out");
-    if (step.has_process) f.push("process_in", "process_out");
-    return f;
-  }, [step]);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
-  const loadLogs = useCallback(async () => {
+  const loadRecent = useCallback(async () => {
     const { data } = await supabase
       .from("logs")
       .select("*")
@@ -85,22 +98,73 @@ export default function StepPanel({
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(30);
-    if (data) setLogs(data as LogRow[]);
+    if (data) setRecent(data as LogRow[]);
   }, [step.id]);
 
   useEffect(() => {
-    void loadLogs();
-    const t = setInterval(() => void loadLogs(), 30000);
-    return () => clearInterval(t);
-  }, [loadLogs]);
+    void loadRecent();
+  }, [loadRecent]);
 
-  /** The record this lot is currently working against, if any. */
-  const activeLog = useMemo(
-    () => logs.find((l) => l.lot_id === lotId) ?? null,
-    [logs, lotId]
+  /**
+   * Look the lot up at this step directly rather than searching the recent
+   * list. The recent list is capped, so a lot logged a while back would not
+   * be found there and a duplicate record would be created.
+   */
+  const lookup = useCallback(async () => {
+    if (!LOT_PATTERN.test(lotId)) {
+      setExisting(null);
+      return;
+    }
+    setLookingUp(true);
+    const { data } = await supabase
+      .from("logs")
+      .select("*")
+      .eq("step_id", step.id)
+      .eq("lot_id", lotId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    setExisting(data && data.length ? (data[0] as LogRow) : null);
+    setLookingUp(false);
+  }, [lotId, step.id]);
+
+  useEffect(() => {
+    const t = setTimeout(() => void lookup(), 250);
+    return () => clearTimeout(t);
+  }, [lookup]);
+
+  useEffect(() => {
+    setArmed(null);
+  }, [lotId]);
+
+  const knownLot = useMemo(
+    () => lots.find((l) => l.lot_id === lotId),
+    [lots, lotId]
   );
 
-  function stampNow(): string {
+  const lotState: LotState = useMemo(() => {
+    if (!lotId) return { kind: "empty" };
+    if (!lotValid) return { kind: "invalid" };
+    if (existing) {
+      const done = [
+        existing.queue_in && "queue in",
+        existing.queue_out && "queue out",
+        existing.process_in && "process in",
+        existing.process_out && "process out",
+      ].filter(Boolean);
+      return {
+        kind: "repeat",
+        lot: knownLot,
+        detail: `This lot already has a record at this step with ${done.join(
+          ", "
+        )}. Logging adds to that same record rather than making a new one.`,
+      };
+    }
+    if (knownLot) return { kind: "known", lot: knownLot };
+    return { kind: "new" };
+  }, [lotId, lotValid, existing, knownLot]);
+
+  function stamp(): string {
     if (timeMode === "now") return new Date().toISOString();
     return phoenixToIso(customDate, customTime);
   }
@@ -119,19 +183,18 @@ export default function StepPanel({
       new_value: newVal,
     };
     const { error } = await supabase.from("log_history").insert(payload);
-    if (error) enqueue({ kind: "insert", table: "log_history", payload, at: Date.now() });
+    if (error)
+      enqueue({ kind: "insert", table: "log_history", payload, at: Date.now() });
   }
 
   async function resolveOperator(): Promise<string | null> {
     if (!showOther) return operatorId || null;
     const name = otherName.trim();
     if (!name) return null;
-
-    const existing = operators.find(
+    const hit = operators.find(
       (o) => o.name.toLowerCase() === name.toLowerCase()
     );
-    if (existing) return existing.id;
-
+    if (hit) return hit.id;
     const { data, error } = await supabase
       .from("operators")
       .insert({ name })
@@ -142,7 +205,20 @@ export default function StepPanel({
     return (data as Operator).id;
   }
 
-  async function press(field: TimeField, force?: "overwrite" | "new") {
+  /** Whether this button is the natural next action for the current record. */
+  function expectation(f: TimeField): "ready" | "filled" | "outOfOrder" {
+    const v = existing?.[f] ?? null;
+    if (v) return "filled";
+    if (f === "queue_in") return "ready";
+    if (f === "queue_out") return existing?.queue_in ? "ready" : "outOfOrder";
+    if (f === "process_in") {
+      if (!step.has_queue) return "ready";
+      return existing?.queue_out ? "ready" : "outOfOrder";
+    }
+    return existing?.process_in ? "ready" : "outOfOrder";
+  }
+
+  async function press(f: TimeField, force?: "overwrite" | "new") {
     if (busy) return;
 
     if (!operatorId && !showOther) {
@@ -150,7 +226,7 @@ export default function StepPanel({
       return;
     }
     if (!lotValid) {
-      onToast("Enter a lot number as 000000-00.");
+      onToast("Choose or type a lot number as 000000-00.");
       return;
     }
     if (step.has_blast_type && !blastType) {
@@ -158,7 +234,15 @@ export default function StepPanel({
       return;
     }
 
+    // Out of sequence presses need a second tap, which is what stops a
+    // mis-hit turning into a bad record.
+    if (!force && expectation(f) === "outOfOrder" && armed !== f) {
+      setArmed(f);
+      return;
+    }
+
     setBusy(true);
+    setArmed(null);
     try {
       const opId = await resolveOperator();
       if (!opId) {
@@ -166,11 +250,12 @@ export default function StepPanel({
         return;
       }
 
-      const ts = stampNow();
-      const target = force === "new" ? null : activeLog;
+      await lookup();
+      const ts = stamp();
+      const target = force === "new" ? null : existing;
 
-      if (target && target[field] && force !== "overwrite") {
-        setConflict({ field, log: target, stamp: ts });
+      if (target && target[f] && force !== "overwrite") {
+        setConflict({ field: f, log: target, stamp: ts });
         return;
       }
 
@@ -181,18 +266,18 @@ export default function StepPanel({
           lot_id: lotId,
           log_date: timeMode === "custom" ? customDate : todayInPhoenix(),
           blast_type: step.has_blast_type ? blastType : null,
-          [field]: ts,
+          [f]: ts,
         };
         const { error } = await supabase.from("logs").insert(payload);
         if (error) {
           enqueue({ kind: "insert", table: "logs", payload, at: Date.now() });
           onToast("Saved on this iPad. It will sync when wifi returns.");
         } else {
-          onToast(`${FIELD_LABEL[field]} recorded for ${lotId}.`);
+          onToast(`${FIELD_LABEL[f]} recorded for ${lotId}.`);
         }
       } else {
-        const prev = target[field];
-        const payload = { [field]: ts, operator_id: opId };
+        const prev = target[f];
+        const payload = { [f]: ts, operator_id: opId };
         const { error } = await supabase
           .from("logs")
           .update(payload)
@@ -207,48 +292,86 @@ export default function StepPanel({
           });
           onToast("Saved on this iPad. It will sync when wifi returns.");
         } else {
-          if (prev) await addHistory(target.id, field, prev, ts);
-          onToast(`${FIELD_LABEL[field]} recorded for ${lotId}.`);
+          if (prev) await addHistory(target.id, f, prev, ts);
+          onToast(`${FIELD_LABEL[f]} recorded for ${lotId}.`);
         }
       }
 
       setConflict(null);
-      await loadLogs();
+      await Promise.all([loadRecent(), lookup()]);
+      onLotsChanged();
     } finally {
       setBusy(false);
     }
   }
 
-  async function softDelete(log: LogRow) {
-    const ok = window.confirm(
-      `Delete the record for lot ${log.lot_id}? It stays in the audit trail and can be restored from the dashboard.`
-    );
-    if (!ok) return;
-    const stamp = new Date().toISOString();
+  async function softDelete(l: LogRow) {
+    if (
+      !window.confirm(
+        `Delete the record for lot ${l.lot_id}? It stays in the audit trail.`
+      )
+    )
+      return;
+    const ts = new Date().toISOString();
     const { error } = await supabase
       .from("logs")
-      .update({ deleted_at: stamp })
-      .eq("id", log.id);
+      .update({ deleted_at: ts })
+      .eq("id", l.id);
     if (error) {
       onToast("Could not delete right now. Check the connection.");
       return;
     }
-    await addHistory(log.id, "deleted", null, stamp);
-    onToast(`Record for ${log.lot_id} deleted.`);
-    await loadLogs();
+    await addHistory(l.id, "deleted", null, ts);
+    onToast(`Record for ${l.lot_id} deleted.`);
+    await Promise.all([loadRecent(), lookup()]);
+    onLotsChanged();
   }
 
-  const iconFor = (f: TimeField) =>
-    f.endsWith("_in") ? <LogIn size={19} /> : <LogOut size={19} />;
+  /** Live elapsed time for a phase that has started but not finished. */
+  function elapsed(inV: string | null, outV: string | null): string | null {
+    void tick;
+    if (!inV) return null;
+    const end = outV ? new Date(outV).getTime() : Date.now();
+    return formatDuration(end - new Date(inV).getTime());
+  }
+
+  const phases = [
+    step.has_queue && {
+      id: "queue" as const,
+      name: "Queue",
+      sub: "Waiting before work starts",
+      icon: <Hourglass size={17} />,
+      fields: ["queue_in", "queue_out"] as TimeField[],
+      live: elapsed(existing?.queue_in ?? null, existing?.queue_out ?? null),
+      running: Boolean(existing?.queue_in && !existing?.queue_out),
+    },
+    step.has_process && {
+      id: "process" as const,
+      name: "Process",
+      sub: "Work being done on the lot",
+      icon: <Cog size={17} />,
+      fields: ["process_in", "process_out"] as TimeField[],
+      live: elapsed(existing?.process_in ?? null, existing?.process_out ?? null),
+      running: Boolean(existing?.process_in && !existing?.process_out),
+    },
+  ].filter(Boolean) as {
+    id: "queue" | "process";
+    name: string;
+    sub: string;
+    icon: React.ReactNode;
+    fields: TimeField[];
+    live: string | null;
+    running: boolean;
+  }[];
 
   return (
     <div className="stack">
-      {/* who */}
+      {/* operator */}
       <div className="panel tight">
-        <label className="field-label">
-          <Users size={13} style={{ verticalAlign: -2, marginRight: 6 }} />
+        <span className="field-label">
+          <Users size={14} />
           Operator
-        </label>
+        </span>
         <div className="chips">
           {operators.map((o) => (
             <button
@@ -271,7 +394,7 @@ export default function StepPanel({
               setOperatorId("");
             }}
           >
-            <Plus size={14} style={{ verticalAlign: -2 }} /> Other
+            Other
           </button>
         </div>
         {showOther && (
@@ -285,27 +408,25 @@ export default function StepPanel({
         )}
       </div>
 
-      {/* what */}
-      <div className="panel tight stack">
-        <div>
-          <label className="field-label">Lot number</label>
-          <input
-            className={`input big mono ${lotId && !lotValid ? "invalid" : ""}`}
-            inputMode="numeric"
-            placeholder="000000-00"
-            value={lotId}
-            onChange={(e) => setLotId(e.target.value.trim())}
-          />
-          {lotId && !lotValid && (
-            <div className="err" style={{ marginTop: 6 }}>
-              Lot numbers are six digits, a dash, then two digits.
-            </div>
-          )}
-        </div>
+      {/* lot */}
+      <div className="panel tight">
+        <LotPicker
+          value={lotId}
+          onChange={setLotId}
+          lots={lots}
+          state={lotState}
+          entryStep={Boolean(step.is_entry)}
+        />
+      </div>
 
+      {/* blast type and time source */}
+      <div className="panel tight stack">
         {step.has_blast_type && (
           <div>
-            <label className="field-label">Blast type</label>
+            <span className="field-label">
+              <Wind size={14} />
+              Blast type
+            </span>
             <div className="chips">
               {(["Manual Blasting", "Auto Blasting"] as BlastType[]).map((b) => (
                 <button
@@ -322,28 +443,29 @@ export default function StepPanel({
         )}
 
         <div>
-          <label className="field-label">Time to record</label>
-          <div className="row">
-            <div className="seg">
-              <button
-                aria-pressed={timeMode === "now"}
-                onClick={() => setTimeMode("now")}
-              >
-                <Clock size={15} />
-                Right now
-              </button>
-              <button
-                aria-pressed={timeMode === "custom"}
-                onClick={() => {
-                  setTimeMode("custom");
-                  setCustomDate(todayInPhoenix());
-                  setCustomTime(nowClockInPhoenix());
-                }}
-              >
-                <History size={15} />
-                Pick a time
-              </button>
-            </div>
+          <span className="field-label">
+            <CalendarClock size={14} />
+            Time to record
+          </span>
+          <div className="seg">
+            <button
+              aria-pressed={timeMode === "now"}
+              onClick={() => setTimeMode("now")}
+            >
+              <Clock size={15} />
+              Right now
+            </button>
+            <button
+              aria-pressed={timeMode === "custom"}
+              onClick={() => {
+                setTimeMode("custom");
+                setCustomDate(todayInPhoenix());
+                setCustomTime(nowClockInPhoenix());
+              }}
+            >
+              <CalendarClock size={15} />
+              Pick a time
+            </button>
           </div>
           {timeMode === "custom" && (
             <div className="grid-2" style={{ marginTop: 10 }}>
@@ -364,50 +486,90 @@ export default function StepPanel({
         </div>
       </div>
 
-      {/* the buttons */}
-      <div className={`actions ${compact ? "" : "two"}`}>
-        {fields.map((f) => {
-          const filled = activeLog?.[f] ?? null;
-          return (
-            <button
-              key={f}
-              className={`action ${f.endsWith("_in") ? "in" : "out"} ${
-                filled ? "done" : ""
-              }`}
-              disabled={busy}
-              onClick={() => void press(f)}
-            >
-              <span className="a-title">
-                {iconFor(f)}
-                {FIELD_LABEL[f]}
-              </span>
-              {filled ? (
-                <>
-                  <span className="a-value mono">{formatStamp(filled)}</span>
-                  <span className="a-stamp">
-                    <Check size={15} style={{ verticalAlign: -2 }} /> logged
-                  </span>
-                </>
-              ) : (
-                <span className="a-empty">
-                  {lotValid ? `Tap to log for ${lotId}` : "Enter a lot number"}
-                </span>
+      {/* the phases */}
+      <div className="phases">
+        {phases.map((p) => (
+          <section className={`phase ${p.id}`} key={p.id}>
+            <div className="phase-head">
+              <span className="phase-mark">{p.icon}</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="phase-name">{p.name}</div>
+                <div className="phase-sub">{p.sub}</div>
+              </div>
+              {p.live && (
+                <div className="phase-live">
+                  <div className="n">{p.live}</div>
+                  <div className="l">{p.running ? "running" : "recorded"}</div>
+                </div>
               )}
-            </button>
-          );
-        })}
+            </div>
+
+            <div className="phase-body">
+              {p.fields.map((f) => {
+                const mode = expectation(f);
+                const isArmed = armed === f;
+                const val = existing?.[f] ?? null;
+                const isIn = f.endsWith("_in");
+
+                return (
+                  <button
+                    key={f}
+                    className={`tbtn ${
+                      isArmed ? "armed" : mode === "ready" ? "ready" : ""
+                    } ${mode === "filled" ? "filled" : ""}`}
+                    disabled={busy || !lotValid}
+                    onClick={() => void press(f)}
+                  >
+                    <span className="t-top">
+                      {isIn ? <Play size={16} /> : <Square size={16} />}
+                      {isIn ? "Start" : "End"}
+                      {mode === "filled" && (
+                        <span className="tick">
+                          <Check size={15} />
+                        </span>
+                      )}
+                    </span>
+                    {isArmed ? (
+                      <span className="t-val">
+                        {isIn ? "Start" : "End"} is out of order. Tap again to
+                        record it.
+                      </span>
+                    ) : val ? (
+                      <span className="t-val mono">{formatStamp(val)}</span>
+                    ) : (
+                      <span className="t-val">
+                        {mode === "ready" ? "Tap to record" : "Not yet expected"}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
 
-      {!step.has_process && (
-        <div className="badge warn">
-          <AlertTriangle size={13} />
-          This step records queue time only
+      {!lotValid && (
+        <div className="hint">
+          Choose a lot from the line, or type one, before recording a time.
         </div>
       )}
-      {!step.has_queue && (
+
+      {(!step.has_process || !step.has_queue) && (
         <div className="badge warn">
-          <AlertTriangle size={13} />
-          This step records process time only
+          <TriangleAlert size={13} />
+          {step.has_process
+            ? "This step records process time only"
+            : "This step records queue time only"}
+        </div>
+      )}
+
+      {step.is_final && existing?.process_out && (
+        <div className="lot-status known">
+          <CircleCheck size={16} />
+          <span>
+            Lot {lotId} is complete and has come off the active list.
+          </span>
         </div>
       )}
 
@@ -416,30 +578,57 @@ export default function StepPanel({
         <div className="row" style={{ marginBottom: 10 }}>
           <strong style={{ fontSize: 14 }}>Recent records at this step</strong>
           <div className="spacer" />
-          <button className="btn sm ghost" onClick={() => void loadLogs()}>
+          <button
+            className="btn sm ghost"
+            onClick={() => void Promise.all([loadRecent(), lookup()])}
+            disabled={lookingUp}
+          >
             <RotateCcw size={14} />
             Refresh
           </button>
         </div>
 
-        {logs.length === 0 ? (
+        {recent.length === 0 ? (
           <div className="empty">Nothing logged here yet.</div>
         ) : (
           <div className="stack scroll-y" style={{ gap: 8 }}>
-            {logs.map((l) => (
+            {recent.map((l) => (
               <div className="log-item" key={l.id}>
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <button
+                  style={{
+                    minWidth: 0,
+                    flex: 1,
+                    textAlign: "left",
+                    background: "none",
+                  }}
+                  onClick={() => setLotId(l.lot_id)}
+                  title={`Load ${l.lot_id}`}
+                >
                   <div className="lot mono">{l.lot_id}</div>
                   <div className="log-meta mono">
-                    {l.queue_in && <span>Q in {formatClock(l.queue_in)}</span>}
-                    {l.queue_out && <span>Q out {formatClock(l.queue_out)}</span>}
-                    {l.process_in && <span>P in {formatClock(l.process_in)}</span>}
+                    {l.queue_in && (
+                      <span>
+                        <LogIn size={11} /> Q {formatClock(l.queue_in)}
+                      </span>
+                    )}
+                    {l.queue_out && (
+                      <span>
+                        <LogOut size={11} /> Q {formatClock(l.queue_out)}
+                      </span>
+                    )}
+                    {l.process_in && (
+                      <span>
+                        <LogIn size={11} /> P {formatClock(l.process_in)}
+                      </span>
+                    )}
                     {l.process_out && (
-                      <span>P out {formatClock(l.process_out)}</span>
+                      <span>
+                        <LogOut size={11} /> P {formatClock(l.process_out)}
+                      </span>
                     )}
                     <span>{l.log_date}</span>
                   </div>
-                </div>
+                </button>
                 <button
                   className="btn sm icon ghost"
                   aria-label={`Edit ${l.lot_id}`}
@@ -460,12 +649,11 @@ export default function StepPanel({
         )}
       </div>
 
-      {/* overwrite question */}
       {conflict && (
         <div className="overlay" onClick={() => setConflict(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{FIELD_LABEL[conflict.field]} is already filled</h3>
-            <p className="hint" style={{ marginTop: 6 }}>
+            <p className="hint">
               Lot {conflict.log.lot_id} already has{" "}
               {FIELD_LABEL[conflict.field].toLowerCase()} at{" "}
               <span className="mono">
@@ -473,7 +661,7 @@ export default function StepPanel({
               </span>
               . Replacing it keeps the old value in the audit trail.
             </p>
-            <div className="row" style={{ marginTop: 18 }}>
+            <div className="row">
               <button
                 className="btn primary"
                 onClick={() => void press(conflict.field, "overwrite")}
@@ -503,7 +691,8 @@ export default function StepPanel({
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
-            await loadLogs();
+            await Promise.all([loadRecent(), lookup()]);
+            onLotsChanged();
             onToast("Record updated.");
           }}
         />
