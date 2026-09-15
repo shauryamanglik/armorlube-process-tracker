@@ -167,18 +167,68 @@ export function summariseLots(rows: Enriched[]): LotSummary[] {
     .sort((a, b) => b.totalMs - a.totalMs);
 }
 
+/**
+ * Steps a lot passed over. Derived rather than stored: if a lot has records
+ * at step 2 and step 6 but nothing between, those steps were skipped.
+ */
+export type SkipCount = { step: string; skipped: number; area: string };
+
+export function skippedSteps(rows: Enriched[], steps: Step[]): SkipCount[] {
+  const ordered = [...steps].sort((a, b) => a.sort_order - b.sort_order);
+  const byLot = new Map<string, Set<number>>();
+
+  for (const r of rows) {
+    if (!r.step) continue;
+    const set = byLot.get(r.log.lot_id) ?? new Set<number>();
+    set.add(r.step.sort_order);
+    byLot.set(r.log.lot_id, set);
+  }
+
+  const counts = new Map<number, number>();
+  for (const touched of byLot.values()) {
+    if (touched.size === 0) continue;
+    const lo = Math.min(...touched);
+    const hi = Math.max(...touched);
+    for (const s of ordered) {
+      if (s.sort_order > lo && s.sort_order < hi && !touched.has(s.sort_order)) {
+        counts.set(s.sort_order, (counts.get(s.sort_order) ?? 0) + 1);
+      }
+    }
+  }
+
+  return ordered
+    .map((s) => ({
+      step: s.step_name,
+      area: s.area,
+      skipped: counts.get(s.sort_order) ?? 0,
+    }))
+    .filter((c) => c.skipped > 0);
+}
+
+/** Lots that went round more than once. */
+export function reworkCount(rows: Enriched[]): number {
+  return new Set(
+    rows.filter((r) => r.log.pass_no > 1).map((r) => r.log.lot_id)
+  ).size;
+}
+
 export function toCsv(rows: Enriched[], opNames: Map<string, string>): string {
+  const name = (id: string | null) => (id ? opNames.get(id) ?? "" : "");
   const head = [
     "Lot",
+    "Pass",
     "Area",
     "Step",
-    "Operator",
     "Date",
     "Blast type",
     "Queue in",
+    "Queue in by",
     "Queue out",
+    "Queue out by",
     "Process in",
+    "Process in by",
     "Process out",
+    "Process out by",
     "Queue hours",
     "Process hours",
     "Total hours",
@@ -190,15 +240,19 @@ export function toCsv(rows: Enriched[], opNames: Map<string, string>): string {
   const lines = rows.map((r) =>
     [
       r.log.lot_id,
+      r.log.pass_no,
       r.step?.area ?? "",
       r.step?.step_name ?? "",
-      opNames.get(r.log.operator_id) ?? "",
       r.log.log_date,
       r.log.blast_type ?? "",
       r.log.queue_in ?? "",
+      name(r.log.queue_in_by),
       r.log.queue_out ?? "",
+      name(r.log.queue_out_by),
       r.log.process_in ?? "",
+      name(r.log.process_in_by),
       r.log.process_out ?? "",
+      name(r.log.process_out_by),
       (r.queueMs / 3600000).toFixed(2),
       (r.processMs / 3600000).toFixed(2),
       (r.totalMs / 3600000).toFixed(2),

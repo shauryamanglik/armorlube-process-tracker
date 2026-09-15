@@ -24,6 +24,7 @@ export type ActiveLot = {
   furthest_step: number;
   last_step: string;
   last_area: string;
+  pass_no: number;
 };
 
 export type BlastType = "Manual Blasting" | "Auto Blasting";
@@ -40,6 +41,12 @@ export type LogRow = {
   process_in: string | null;
   process_out: string | null;
   notes: string | null;
+  pass_no: number;
+  auto_from_step_id: string | null;
+  queue_in_by: string | null;
+  queue_out_by: string | null;
+  process_in_by: string | null;
+  process_out_by: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -79,3 +86,27 @@ export const FIELD_LABEL: Record<TimeField, string> = {
 };
 
 export const LOT_PATTERN = /^\d{6}-\d{2}$/;
+
+/** Which operator column pairs with which timestamp. */
+export const BY_FIELD: Record<TimeField, string> = {
+  queue_in: "queue_in_by",
+  queue_out: "queue_out_by",
+  process_in: "process_in_by",
+  process_out: "process_out_by",
+};
+
+/** The timestamp that starts a step, given what phases it has. */
+export function entryField(step: {
+  has_queue: boolean;
+  has_process: boolean;
+}): TimeField {
+  return step.has_queue ? "queue_in" : "process_in";
+}
+
+/** The timestamp that finishes a step and hands the lot onward. */
+export function exitField(step: {
+  has_queue: boolean;
+  has_process: boolean;
+}): TimeField {
+  return step.has_process ? "process_out" : "queue_out";
+}

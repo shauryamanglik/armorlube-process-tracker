@@ -18,6 +18,8 @@ import {
 import {
   bucketBy,
   enrich,
+  reworkCount,
+  skippedSteps,
   summariseLots,
   toCsv,
   trendByDay,
@@ -137,7 +139,15 @@ export default function DashboardPage() {
     return rows.filter((r) => {
       if (area && r.step?.area !== area) return false;
       if (stepId && r.log.step_id !== stepId) return false;
-      if (operator && r.log.operator_id !== operator) return false;
+      if (operator) {
+        const touched =
+          r.log.operator_id === operator ||
+          r.log.queue_in_by === operator ||
+          r.log.queue_out_by === operator ||
+          r.log.process_in_by === operator ||
+          r.log.process_out_by === operator;
+        if (!touched) return false;
+      }
       if (blast && r.log.blast_type !== blast) return false;
       if (lotSearch && !r.log.lot_id.includes(lotSearch.trim())) return false;
       if (onlyFlagged && !r.flagged) return false;
@@ -150,6 +160,11 @@ export default function DashboardPage() {
   const byArea = useMemo(() => bucketBy(filtered, "area"), [filtered]);
   const trend = useMemo(() => trendByDay(filtered), [filtered]);
   const lots = useMemo(() => summariseLots(filtered), [filtered]);
+  const skips = useMemo(
+    () => skippedSteps(filtered, data?.steps ?? []),
+    [filtered, data]
+  );
+  const rework = useMemo(() => reworkCount(filtered), [filtered]);
 
   const totals = useMemo(() => {
     const q = filtered.map((r) => r.queueMs).filter((n) => n > 0);
@@ -427,7 +442,7 @@ export default function DashboardPage() {
             <div className="v">{totals.flagged + totals.incomplete}</div>
             <div className="hint">
               {totals.flagged} cross a shift boundary, {totals.incomplete} missing a
-              time
+              time{rework > 0 ? `, ${rework} reworked` : ""}
             </div>
           </div>
         </section>
@@ -491,6 +506,44 @@ export default function DashboardPage() {
               <h2 className="section-title">Daily average, queue against process</h2>
               <Trend points={trend} />
             </div>
+
+            <div className="panel">
+              <h2 className="section-title">Steps passed over</h2>
+              {skips.length === 0 ? (
+                <div className="empty">
+                  No lot skipped a step inside this range.
+                </div>
+              ) : (
+                <>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Step</th>
+                          <th>Area</th>
+                          <th>Lots that skipped it</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {skips.map((sk) => (
+                          <tr key={sk.step}>
+                            <td>{sk.step}</td>
+                            <td>{sk.area}</td>
+                            <td>
+                              <strong>{sk.skipped}</strong>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="hint" style={{ marginTop: 8 }}>
+                    Worked out from gaps in each lot's route. A lot logged at
+                    Degrease and then Fixturing skipped everything between.
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -546,14 +599,16 @@ export default function DashboardPage() {
                 <thead>
                   <tr>
                     <th>Lot</th>
+                    <th>Pass</th>
                     <th>Step</th>
                     <th>Area</th>
-                    <th>Operator</th>
                     <th>Date</th>
                     <th>Queue in</th>
+                    <th>Queue in by</th>
                     <th>Queue out</th>
                     <th>Process in</th>
                     <th>Process out</th>
+                    <th>Process out by</th>
                     <th>Queue</th>
                     <th>Process</th>
                     <th>Off shift</th>
@@ -564,14 +619,22 @@ export default function DashboardPage() {
                   {filtered.slice(0, 1000).map((r) => (
                     <tr key={r.log.id}>
                       <td className="mono">{r.log.lot_id}</td>
+                      <td>
+                        {r.log.pass_no > 1 ? (
+                          <span className="badge warn">{r.log.pass_no}</span>
+                        ) : (
+                          1
+                        )}
+                      </td>
                       <td>{r.step?.step_name}</td>
                       <td>{r.step?.area}</td>
-                      <td>{opNames.get(r.log.operator_id)}</td>
                       <td className="mono">{r.log.log_date}</td>
                       <td className="mono">{formatStamp(r.log.queue_in)}</td>
+                      <td>{opNames.get(r.log.queue_in_by ?? "") ?? ""}</td>
                       <td className="mono">{formatStamp(r.log.queue_out)}</td>
                       <td className="mono">{formatStamp(r.log.process_in)}</td>
                       <td className="mono">{formatStamp(r.log.process_out)}</td>
+                      <td>{opNames.get(r.log.process_out_by ?? "") ?? ""}</td>
                       <td>{r.queueMs ? formatDuration(r.queueMs) : ""}</td>
                       <td>{r.processMs ? formatDuration(r.processMs) : ""}</td>
                       <td>

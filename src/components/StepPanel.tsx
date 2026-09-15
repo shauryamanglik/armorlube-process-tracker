@@ -5,6 +5,8 @@ import {
   CalendarClock,
   Check,
   CircleCheck,
+  CornerDownRight,
+  CornerUpLeft,
   Clock,
   Cog,
   Hourglass,
@@ -20,6 +22,9 @@ import {
 import { supabase } from "@/lib/supabase";
 import { enqueue } from "@/lib/offline";
 import {
+  BY_FIELD,
+  entryField,
+  exitField,
   FIELD_LABEL,
   LOT_PATTERN,
   type ActiveLot,
@@ -39,9 +44,11 @@ import {
 } from "@/lib/time";
 import EditLogModal from "./EditLogModal";
 import LotPicker, { type LotState } from "./LotPicker";
+import RouteDialog, { type RouteChoice } from "./RouteDialog";
 
 type Props = {
   step: Step;
+  allSteps: Step[];
   operators: Operator[];
   lots: ActiveLot[];
   onOperatorsChanged: () => void;
@@ -54,6 +61,7 @@ type Conflict = { field: TimeField; log: LogRow; stamp: string };
 
 export default function StepPanel({
   step,
+  allSteps,
   operators,
   lots,
   onOperatorsChanged,
@@ -78,6 +86,10 @@ export default function StepPanel({
   const [busy, setBusy] = useState(false);
   const [armed, setArmed] = useState<TimeField | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
+  const [routing, setRouting] = useState<{ lot: string; stamp: string } | null>(
+    null
+  );
+  const [routeBusy, setRouteBusy] = useState(false);
   const [editing, setEditing] = useState<LogRow | null>(null);
   const [tick, setTick] = useState(0);
 
@@ -120,6 +132,7 @@ export default function StepPanel({
       .eq("step_id", step.id)
       .eq("lot_id", lotId)
       .is("deleted_at", null)
+      .order("pass_no", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(1);
     setExisting(data && data.length ? (data[0] as LogRow) : null);
@@ -161,6 +174,9 @@ export default function StepPanel({
     if (knownLot) return { kind: "known", lot: knownLot };
     return { kind: "new" };
   }, [lotId, lotValid, existing, knownLot]);
+
+  /** Blast type already stored on the record beats the local picker. */
+  const effectiveBlast = existing?.blast_type ?? blastType ?? "";
 
   function stamp(): string {
     if (timeMode === "now") return new Date().toISOString();
@@ -236,8 +252,10 @@ export default function StepPanel({
       onToast("Choose or type a lot number as 000000-00.");
       return;
     }
-    if (step.has_blast_type && !blastType) {
-      onToast("Choose a blast type.");
+    const needsBlast =
+      step.has_blast_type && f.startsWith("process") && !effectiveBlast;
+    if (needsBlast) {
+      onToast("Choose a blast type before logging process time.");
       return;
     }
 
@@ -272,8 +290,10 @@ export default function StepPanel({
           operator_id: opId,
           lot_id: lotId,
           log_date: timeMode === "custom" ? customDate : todayInPhoenix(),
-          blast_type: step.has_blast_type ? blastType : null,
+          blast_type: step.has_blast_type ? blastType || null : null,
+          pass_no: 1,
           [f]: ts,
+          [BY_FIELD[f]]: opId,
         };
         const { error } = await supabase.from("logs").insert(payload);
         if (error) {
@@ -284,7 +304,13 @@ export default function StepPanel({
         }
       } else {
         const prev = target[f];
-        const payload = { [f]: ts, operator_id: opId };
+        const payload: Record<string, unknown> = {
+          [f]: ts,
+          [BY_FIELD[f]]: opId,
+        };
+        if (step.has_blast_type && blastType && !target.blast_type) {
+          payload.blast_type = blastType;
+        }
         const { error } = await supabase
           .from("logs")
           .update(payload)
@@ -307,8 +333,120 @@ export default function StepPanel({
       setConflict(null);
       await Promise.all([loadRecent(), lookup()]);
       onLotsChanged();
+
+      // Leaving this step hands the lot to the next one. The final step has
+      // nowhere to send it, so the lot simply closes.
+      if (f === exitField(step) && !step.is_final) {
+        setRouting({ lot: lotId, stamp: ts });
+      }
     } finally {
       setBusy(false);
+    }
+  }
+
+
+  /**
+   * Write the entry timestamp at the target step using the same instant the
+   * lot left this one, so queue time at the next step measures the real gap.
+   */
+  async function routeTo(choice: RouteChoice) {
+    if (!routing) return;
+    setRouteBusy(true);
+    try {
+      const opId = await resolveOperator();
+      const target = choice.target;
+      const entry = entryField(target);
+
+      // Find what the lot already has at the target, newest pass first.
+      const { data } = await supabase
+        .from("logs")
+        .select("*")
+        .eq("step_id", target.id)
+        .eq("lot_id", routing.lot)
+        .is("deleted_at", null)
+        .order("pass_no", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const found = data && data.length ? (data[0] as LogRow) : null;
+
+      // Rework opens a new pass rather than touching the original run.
+      if (choice.rework || (found && found[entry])) {
+        const nextPass = (found?.pass_no ?? 0) + 1;
+        const payload = {
+          step_id: target.id,
+          operator_id: opId,
+          lot_id: routing.lot,
+          log_date: todayInPhoenix(),
+          blast_type: target.has_blast_type ? choice.blastType : null,
+          pass_no: choice.rework ? nextPass : found ? nextPass : 1,
+          auto_from_step_id: step.id,
+          [entry]: routing.stamp,
+          [BY_FIELD[entry]]: opId,
+        };
+        const { error } = await supabase.from("logs").insert(payload);
+        if (error) {
+          enqueue({ kind: "insert", table: "logs", payload, at: Date.now() });
+          onToast("Handoff saved on this iPad. It will sync when wifi returns.");
+        } else {
+          onToast(
+            choice.rework
+              ? `Lot ${routing.lot} sent back to ${target.step_name} as pass ${payload.pass_no}.`
+              : `Lot ${routing.lot} sent to ${target.step_name}.`
+          );
+        }
+      } else if (found) {
+        // Record exists with the entry slot empty, so fill it.
+        const payload: Record<string, unknown> = {
+          [entry]: routing.stamp,
+          [BY_FIELD[entry]]: opId,
+          auto_from_step_id: step.id,
+        };
+        if (target.has_blast_type && choice.blastType && !found.blast_type) {
+          payload.blast_type = choice.blastType;
+        }
+        const { error } = await supabase
+          .from("logs")
+          .update(payload)
+          .eq("id", found.id);
+        if (error) {
+          enqueue({
+            kind: "update",
+            table: "logs",
+            id: found.id,
+            payload,
+            at: Date.now(),
+          });
+          onToast("Handoff saved on this iPad. It will sync when wifi returns.");
+        } else {
+          onToast(`Lot ${routing.lot} sent to ${target.step_name}.`);
+        }
+      } else {
+        const payload = {
+          step_id: target.id,
+          operator_id: opId,
+          lot_id: routing.lot,
+          log_date: todayInPhoenix(),
+          blast_type: target.has_blast_type ? choice.blastType : null,
+          pass_no: 1,
+          auto_from_step_id: step.id,
+          [entry]: routing.stamp,
+          [BY_FIELD[entry]]: opId,
+        };
+        const { error } = await supabase.from("logs").insert(payload);
+        if (error) {
+          enqueue({ kind: "insert", table: "logs", payload, at: Date.now() });
+          onToast("Handoff saved on this iPad. It will sync when wifi returns.");
+        } else {
+          onToast(`Lot ${routing.lot} sent to ${target.step_name}.`);
+        }
+      }
+
+      setRouting(null);
+      setLotId("");
+      onLotsChanged();
+    } finally {
+      setRouteBusy(false);
     }
   }
 
@@ -341,6 +479,10 @@ export default function StepPanel({
     const end = outV ? new Date(outV).getTime() : Date.now();
     return formatDuration(end - new Date(inV).getTime());
   }
+
+  const arrivedFrom = existing?.auto_from_step_id
+    ? allSteps.find((x) => x.id === existing.auto_from_step_id)?.step_name ?? null
+    : null;
 
   const phases = [
     step.has_queue && {
@@ -426,6 +568,16 @@ export default function StepPanel({
         />
       </div>
 
+      {existing && existing.pass_no > 1 && (
+        <div className="lot-status repeat">
+          <CornerUpLeft size={16} />
+          <span>
+            Lot {lotId} is on pass {existing.pass_no} at this step. Earlier passes
+            are kept separately.
+          </span>
+        </div>
+      )}
+
       {/* blast type and time source */}
       <div className="panel tight stack">
         {step.has_blast_type && (
@@ -439,13 +591,18 @@ export default function StepPanel({
                 <button
                   key={b}
                   className="chip"
-                  aria-pressed={blastType === b}
+                  aria-pressed={effectiveBlast === b}
                   onClick={() => setBlastType(b)}
                 >
                   {b}
                 </button>
               ))}
             </div>
+            {lotValid && !effectiveBlast && (
+              <p className="hint" style={{ marginTop: 8 }}>
+                Needed before process in. The upstream station left this open.
+              </p>
+            )}
           </div>
         )}
 
@@ -545,7 +702,15 @@ export default function StepPanel({
                         Out of order. Tap again to record it.
                       </span>
                     ) : val ? (
-                      <span className="t-val mono">{formatStamp(val)}</span>
+                      <>
+                        <span className="t-val mono">{formatStamp(val)}</span>
+                        {arrivedFrom && f === entryField(step) && (
+                          <span className="arrived">
+                            <CornerDownRight size={12} />
+                            Arrived from {arrivedFrom}
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <span className="t-val">
                         {mode === "ready" ? "Tap to record" : waitingOn(f)}
@@ -690,6 +855,22 @@ export default function StepPanel({
             </div>
           </div>
         </div>
+      )}
+
+      {routing && (
+        <RouteDialog
+          lotId={routing.lot}
+          from={step}
+          steps={allSteps}
+          stamp={formatStamp(routing.stamp)}
+          busy={routeBusy}
+          onHold={() => {
+            setRouting(null);
+            setLotId("");
+            onToast(`Lot ${routing.lot} is holding at ${step.step_name}.`);
+          }}
+          onConfirm={(c) => void routeTo(c)}
+        />
       )}
 
       {editing && (

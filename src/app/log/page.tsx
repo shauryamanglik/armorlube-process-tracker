@@ -173,6 +173,7 @@ function LogScreen() {
               <StepPanel
                 step={s}
                 operators={operators}
+                allSteps={steps}
                 lots={lots}
                 onOperatorsChanged={() => void loadOperators()}
                 onLotsChanged={() => void loadLots()}
