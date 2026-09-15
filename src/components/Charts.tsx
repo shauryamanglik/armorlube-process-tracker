@@ -27,8 +27,13 @@ const TOOLTIP_STYLE = {
   color: "#e9eef4",
 };
 
-function hoursTip(value: number) {
-  return formatDuration(value * 3600000);
+/**
+ * Recharts types the formatter value loosely, so this takes unknown and
+ * coerces. Keeps the component compatible across recharts versions.
+ */
+function hoursTip(value: unknown): string {
+  const n = Number(value);
+  return formatDuration(isFinite(n) ? n * 3600000 : 0);
 }
 
 export function StepBars({
@@ -63,7 +68,7 @@ export function StepBars({
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
           cursor={{ fill: "rgba(255,255,255,0.04)" }}
-          formatter={(v: number) => [hoursTip(v), "Average"]}
+          formatter={(v: unknown) => [hoursTip(v), "Average"]}
         />
         <Bar dataKey="value" radius={[5, 5, 0, 0]} fill={color} />
       </BarChart>
@@ -94,7 +99,7 @@ export function SplitBars({ buckets }: { buckets: Bucket[] }) {
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
           cursor={{ fill: "rgba(255,255,255,0.04)" }}
-          formatter={(v: number, n: string) => [hoursTip(v), n]}
+          formatter={(v: unknown, n: unknown) => [hoursTip(v), String(n)]}
         />
         <Legend wrapperStyle={{ fontSize: 12, color: "#9aa8b8" }} />
         <Bar dataKey="Queue" stackId="a" fill="#f0a92e" />
@@ -127,7 +132,7 @@ export function LoadBars({ buckets }: { buckets: Bucket[] }) {
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
           cursor={{ fill: "rgba(255,255,255,0.04)" }}
-          formatter={(v: number) => [hoursTip(v), "Total logged"]}
+          formatter={(v: unknown) => [hoursTip(v), "Total logged"]}
         />
         <Bar dataKey="value" radius={[5, 5, 0, 0]}>
           {data.map((d, i) => (
@@ -154,7 +159,7 @@ export function Trend({ points }: { points: TrendPoint[] }) {
         <YAxis tick={AXIS} unit="h" />
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
-          formatter={(v: number, n: string) => [hoursTip(v), n]}
+          formatter={(v: unknown, n: unknown) => [hoursTip(v), String(n)]}
         />
         <Legend wrapperStyle={{ fontSize: 12, color: "#9aa8b8" }} />
         <Line
