@@ -10,7 +10,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import type { ActiveLot } from "@/lib/types";
-import { LOT_PATTERN } from "@/lib/types";
+import { LOT_HINT, LOT_PATTERN, normalizeLot } from "@/lib/types";
 
 export type LotState =
   | { kind: "empty" }
@@ -76,18 +76,23 @@ export default function LotPicker({
           className={`input big mono ${
             state.kind === "invalid" ? "invalid" : ""
           }`}
-          inputMode="numeric"
-          placeholder="000000-00"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="Lot number"
           value={value}
-          onChange={(e) => onChange(e.target.value.trim())}
+          onChange={(e) => onChange(normalizeLot(e.target.value))}
         />
       ) : (
         <>
           <input
             className="input mono"
             placeholder="Filter lots"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => setSearch(e.target.value.toUpperCase())}
           />
           {shown.length === 0 ? (
             <div className="empty" style={{ padding: 22 }}>
@@ -121,9 +126,7 @@ export default function LotPicker({
       )}
 
       {state.kind === "invalid" && (
-        <div className="err">
-          Lot numbers are six digits, a dash, then two digits.
-        </div>
+        <div className="err">{LOT_HINT}</div>
       )}
 
       {state.kind === "new" && LOT_PATTERN.test(value) && (

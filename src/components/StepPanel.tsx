@@ -28,7 +28,9 @@ import {
   entryField,
   exitField,
   FIELD_LABEL,
+  LOT_HINT,
   LOT_PATTERN,
+  normalizeLot,
   type ActiveLot,
   type BlastType,
   type LogRow,
@@ -260,8 +262,12 @@ export default function StepPanel({
   /** What a waiting button is waiting on, in plain words. */
   function waitingOn(f: TimeField): string {
     if (f === "queue_out") return "Queue in not logged yet";
-    if (f === "process_in")
-      return step.has_queue ? "Queue out not logged yet" : "";
+    if (f === "process_in") {
+      if (!step.has_queue) return "";
+      return linked && linkable
+        ? "Queue in not logged yet"
+        : "Queue out not logged yet";
+    }
     if (f === "process_out") return "Process in not logged yet";
     return "";
   }
@@ -274,6 +280,10 @@ export default function StepPanel({
     if (f === "queue_out") return existing?.queue_in ? "ready" : "waiting";
     if (f === "process_in") {
       if (!step.has_queue) return "ready";
+      // With the link on, pressing process in is a valid way to close the
+      // queue, so it is ready as soon as the lot has queued in. Only an
+      // unlinked step needs queue out recorded first.
+      if (linked && linkable) return existing?.queue_in ? "ready" : "waiting";
       return existing?.queue_out ? "ready" : "waiting";
     }
     return existing?.process_in ? "ready" : "waiting";
@@ -287,7 +297,7 @@ export default function StepPanel({
       return;
     }
     if (!lotValid) {
-      onToast("Choose or type a lot number as 000000-00.");
+      onToast(`Choose or type a lot number. ${LOT_HINT}`);
       return;
     }
     const needsBlast =
@@ -850,7 +860,7 @@ export default function StepPanel({
                     textAlign: "left",
                     background: "none",
                   }}
-                  onClick={() => setLotId(l.lot_id)}
+                  onClick={() => setLotId(normalizeLot(l.lot_id))}
                   title={`Load ${l.lot_id}`}
                 >
                   <div className="lot mono">{l.lot_id}</div>

@@ -5,7 +5,9 @@ import { History, Save, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   FIELD_LABEL,
+  LOT_HINT,
   LOT_PATTERN,
+  normalizeLot,
   TIME_FIELDS,
   type BlastType,
   type HistoryRow,
@@ -83,7 +85,7 @@ export default function EditLogModal({
 
   async function save() {
     if (!LOT_PATTERN.test(lotId)) {
-      setError("Lot numbers are six digits, a dash, then two digits.");
+      setError(LOT_HINT);
       return;
     }
     setSaving(true);
@@ -159,7 +161,10 @@ export default function EditLogModal({
           <input
             className="input mono"
             value={lotId}
-            onChange={(e) => setLotId(e.target.value.trim())}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(e) => setLotId(normalizeLot(e.target.value))}
           />
         </div>
 

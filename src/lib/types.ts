@@ -85,7 +85,26 @@ export const FIELD_LABEL: Record<TimeField, string> = {
   process_out: "Process out",
 };
 
-export const LOT_PATTERN = /^\d{6}-\d{2}$/;
+/**
+ * Lot numbers vary in shape: letters, digits, and one or more dashes as
+ * separators. Validation stays loose enough to accept any real format but
+ * still rejects the things that create orphan records: spaces, stray
+ * punctuation, leading or trailing separators, and doubled separators.
+ */
+export const LOT_PATTERN = /^[A-Z0-9]+(?:[-_][A-Z0-9]+)*$/;
+
+export const LOT_HINT =
+  "Letters, numbers, dashes and underscores. No spaces, and no dash or underscore at the start or end.";
+
+/**
+ * Fold case so ABC-1 and abc-1 are never two lots, and trim the outside for
+ * pasted values. Internal spaces are deliberately kept so they fail
+ * validation: silently closing the gap would turn a typo like "123 456"
+ * into a different, perfectly valid lot number.
+ */
+export function normalizeLot(v: string): string {
+  return v.trim().toUpperCase();
+}
 
 /** Which operator column pairs with which timestamp. */
 export const BY_FIELD: Record<TimeField, string> = {
