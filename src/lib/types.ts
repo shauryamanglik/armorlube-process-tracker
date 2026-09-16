@@ -15,6 +15,7 @@ export type Step = {
   sort_order: number;
   is_entry?: boolean;
   is_final?: boolean;
+  tracks_po?: boolean;
 };
 
 export type ActiveLot = {
@@ -50,6 +51,46 @@ export type LogRow = {
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type SegmentKind = "queue" | "process";
+
+/**
+ * One interval of waiting or working. A record owns a list of these, so a lot
+ * can go back to queue as many times as the floor needs and every stretch is
+ * kept rather than overwritten.
+ */
+export type Segment = {
+  id: string;
+  log_id: string | null;
+  po_log_id: string | null;
+  kind: SegmentKind;
+  started_at: string;
+  /** Null while the interval is still running. */
+  ended_at: string | null;
+  started_by: string[];
+  ended_by: string[];
+  created_at: string;
+};
+
+export type PoLog = {
+  id: string;
+  step_id: string;
+  po_number: string;
+  log_date: string;
+  notes: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PoRegistryRow = {
+  po_number: string;
+  last_activity: string;
+  record_count: number;
+  seen_at_incoming: boolean;
+  seen_at_final: boolean;
+  last_step: string;
 };
 
 export type HistoryRow = {

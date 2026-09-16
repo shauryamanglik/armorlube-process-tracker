@@ -13,7 +13,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { drain, pendingCount, watchConnection } from "@/lib/offline";
 import type { ActiveLot, Operator, Step } from "@/lib/types";
-import StepPanel from "@/components/StepPanel";
+import StationPanel from "@/components/StationPanel";
 
 function LogScreen() {
   const router = useRouter();
@@ -170,7 +170,7 @@ function LogScreen() {
                   <span className="badge">{s.area}</span>
                 </div>
               )}
-              <StepPanel
+              <StationPanel
                 step={s}
                 operators={operators}
                 allSteps={steps}

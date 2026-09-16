@@ -1,15 +1,21 @@
 import { measureSpan, spanValue, type Span } from "./time";
-import type { LogRow, Step, WorkRules } from "./types";
+import { byParent, crewOf, interruptions, rollup } from "./segments";
+import type { LogRow, PoLog, Segment, Step, WorkRules } from "./types";
 
 export type Enriched = {
   log: LogRow;
   step: Step | undefined;
+  segments: Segment[];
   queue: Span | null;
   process: Span | null;
   queueMs: number;
   processMs: number;
   totalMs: number;
-  /** True when either span runs past a shift boundary. */
+  /** Elapsed multiplied by the crew on each interval. */
+  labourMs: number;
+  /** How many times the lot was sent back to queue. */
+  interruptions: number;
+  /** True when a stretch runs past a shift boundary. */
   flagged: boolean;
   incomplete: boolean;
 };
@@ -18,35 +24,108 @@ export function enrich(
   logs: LogRow[],
   steps: Step[],
   rules: WorkRules,
-  includeOffShift: boolean
+  includeOffShift: boolean,
+  segments: Segment[] = []
 ): Enriched[] {
   const byId = new Map(steps.map((s) => [s.id, s]));
+  const segsByLog = byParent(segments, "log_id");
 
   return logs.map((log) => {
     const step = byId.get(log.step_id);
-    const queue = measureSpan(log.queue_in, log.queue_out, rules);
-    const process = measureSpan(log.process_in, log.process_out, rules);
+    const segs = segsByLog.get(log.id) ?? [];
 
-    const queueMs = spanValue(queue, includeOffShift);
-    const processMs = spanValue(process, includeOffShift);
+    // Records created before intervals existed still carry their original
+    // four timestamps, so fall back to those rather than showing zero.
+    const useLegacy = segs.length === 0;
+
+    const q = useLegacy ? null : rollup(segs, "queue", rules);
+    const p = useLegacy ? null : rollup(segs, "process", rules);
+
+    const queue = useLegacy
+      ? measureSpan(log.queue_in, log.queue_out, rules)
+      : null;
+    const process = useLegacy
+      ? measureSpan(log.process_in, log.process_out, rules)
+      : null;
+
+    const queueMs = useLegacy
+      ? spanValue(queue, includeOffShift)
+      : includeOffShift
+      ? q!.rawMs
+      : q!.businessMs;
+    const processMs = useLegacy
+      ? spanValue(process, includeOffShift)
+      : includeOffShift
+      ? p!.rawMs
+      : p!.businessMs;
 
     const wantsQueue = step?.has_queue ?? true;
     const wantsProcess = step?.has_process ?? true;
 
-    const incomplete =
-      (wantsQueue && (!log.queue_in || !log.queue_out)) ||
-      (wantsProcess && (!log.process_in || !log.process_out));
+    const incomplete = useLegacy
+      ? (wantsQueue && (!log.queue_in || !log.queue_out)) ||
+        (wantsProcess && (!log.process_in || !log.process_out))
+      : (wantsQueue && (q!.count === 0 || q!.running)) ||
+        (wantsProcess && (p!.count === 0 || p!.running));
 
     return {
       log,
       step,
+      segments: segs,
       queue,
       process,
       queueMs,
       processMs,
       totalMs: queueMs + processMs,
-      flagged: Boolean(queue?.crossesOffShift || process?.crossesOffShift),
+      labourMs: useLegacy ? queueMs + processMs : q!.labourMs + p!.labourMs,
+      interruptions: useLegacy ? 0 : interruptions(segs),
+      flagged: useLegacy
+        ? Boolean(queue?.crossesOffShift || process?.crossesOffShift)
+        : q!.crossesOffShift || p!.crossesOffShift,
       incomplete,
+    };
+  });
+}
+
+/** Purchase order records, measured the same way as lots. */
+export type EnrichedPo = {
+  po: PoLog;
+  step: Step | undefined;
+  segments: Segment[];
+  queueMs: number;
+  processMs: number;
+  totalMs: number;
+  labourMs: number;
+  interruptions: number;
+  running: boolean;
+};
+
+export function enrichPos(
+  poLogs: PoLog[],
+  steps: Step[],
+  rules: WorkRules,
+  includeOffShift: boolean,
+  segments: Segment[] = []
+): EnrichedPo[] {
+  const byId = new Map(steps.map((s) => [s.id, s]));
+  const segsByPo = byParent(segments, "po_log_id");
+
+  return poLogs.map((po) => {
+    const segs = segsByPo.get(po.id) ?? [];
+    const q = rollup(segs, "queue", rules);
+    const p = rollup(segs, "process", rules);
+    const queueMs = includeOffShift ? q.rawMs : q.businessMs;
+    const processMs = includeOffShift ? p.rawMs : p.businessMs;
+    return {
+      po,
+      step: byId.get(po.step_id),
+      segments: segs,
+      queueMs,
+      processMs,
+      totalMs: queueMs + processMs,
+      labourMs: q.labourMs + p.labourMs,
+      interruptions: interruptions(segs),
+      running: q.running || p.running,
     };
   });
 }
@@ -61,6 +140,8 @@ export type Bucket = {
   totalAvg: number;
   queueTotal: number;
   processTotal: number;
+  labourTotal: number;
+  interruptionTotal: number;
   flaggedCount: number;
 };
 
@@ -100,6 +181,8 @@ export function bucketBy(
       totalAvg: avg(list.map((r) => r.totalMs)),
       queueTotal: queues.reduce((a, b) => a + b, 0),
       processTotal: processes.reduce((a, b) => a + b, 0),
+      labourTotal: list.reduce((a, r) => a + r.labourMs, 0),
+      interruptionTotal: list.reduce((a, r) => a + r.interruptions, 0),
       flaggedCount: list.filter((r) => r.flagged).length,
     });
   }
@@ -232,6 +315,9 @@ export function toCsv(rows: Enriched[], opNames: Map<string, string>): string {
     "Queue hours",
     "Process hours",
     "Total hours",
+    "Labour hours",
+    "Times sent back to queue",
+    "Crew",
     "Crosses off shift",
     "Incomplete",
     "Notes",
@@ -256,6 +342,9 @@ export function toCsv(rows: Enriched[], opNames: Map<string, string>): string {
       (r.queueMs / 3600000).toFixed(2),
       (r.processMs / 3600000).toFixed(2),
       (r.totalMs / 3600000).toFixed(2),
+      (r.labourMs / 3600000).toFixed(2),
+      r.interruptions,
+      crewOf(r.segments).map(name).filter(Boolean).join(" / "),
       r.flagged ? "yes" : "no",
       r.incomplete ? "yes" : "no",
       (r.log.notes ?? "").replace(/"/g, '""'),

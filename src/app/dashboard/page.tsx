@@ -6,6 +6,7 @@ import {
   BarChart3,
   Clock3,
   Download,
+  FileText,
   Filter,
   Layers,
   ListOrdered,
@@ -13,11 +14,14 @@ import {
   LogIn,
   RefreshCw,
   Settings as SettingsIcon,
+  Timer,
   TriangleAlert,
+  Users,
 } from "lucide-react";
 import {
   bucketBy,
   enrich,
+  enrichPos,
   reworkCount,
   skippedSteps,
   summariseLots,
@@ -25,14 +29,24 @@ import {
   trendByDay,
   type Enriched,
 } from "@/lib/analytics";
-import { DEFAULT_RULES, formatDuration, formatStamp, toHours } from "@/lib/time";
-import type { LogRow, Operator, Step, WorkRules } from "@/lib/types";
+import { DEFAULT_RULES, formatDuration, toHours } from "@/lib/time";
+import { crewOf } from "@/lib/segments";
+import type {
+  LogRow,
+  Operator,
+  PoLog,
+  Segment,
+  Step,
+  WorkRules,
+} from "@/lib/types";
 import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
 
 const KEY_STORE = "apt.key.v1";
 
 type Payload = {
   logs: LogRow[];
+  poLogs: PoLog[];
+  segments: Segment[];
   steps: Step[];
   operators: Operator[];
   rules: WorkRules | null;
@@ -66,7 +80,11 @@ export default function DashboardPage() {
   const [includeOffShift, setIncludeOffShift] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
 
-  const [tab, setTab] = useState<"charts" | "raw" | "lots" | "settings">("charts");
+  const [tab, setTab] = useState<
+    "charts" | "raw" | "lots" | "pos" | "settings"
+  >("charts");
+  /** Elapsed time is the headline. Labour hours are opt in. */
+  const [labourView, setLabourView] = useState(false);
 
   useEffect(() => {
     const saved = sessionStorage.getItem(KEY_STORE);
@@ -132,7 +150,24 @@ export default function DashboardPage() {
 
   const rows: Enriched[] = useMemo(() => {
     if (!data) return [];
-    return enrich(data.logs, data.steps, rules, includeOffShift);
+    return enrich(
+      data.logs,
+      data.steps,
+      rules,
+      includeOffShift,
+      data.segments ?? []
+    );
+  }, [data, rules, includeOffShift]);
+
+  const poRows = useMemo(() => {
+    if (!data) return [];
+    return enrichPos(
+      data.poLogs ?? [],
+      data.steps,
+      rules,
+      includeOffShift,
+      data.segments ?? []
+    );
   }, [data, rules, includeOffShift]);
 
   const filtered = useMemo(() => {
@@ -181,6 +216,9 @@ export default function DashboardPage() {
       incomplete: filtered.filter((r) => r.incomplete).length,
       slowest: slowest?.label ?? "",
       slowestMs: slowest?.totalAvg ?? 0,
+      interruptions: filtered.reduce((a, r) => a + r.interruptions, 0),
+      labourMs: filtered.reduce((a, r) => a + r.labourMs, 0),
+      elapsedMs: filtered.reduce((a, r) => a + r.totalMs, 0),
     };
   }, [filtered, byStep]);
 
@@ -289,6 +327,22 @@ export default function DashboardPage() {
                 onClick={() => setIncludeOffShift(true)}
               >
                 Include nights and weekends
+              </button>
+            </div>
+            <div className="seg">
+              <button
+                aria-pressed={!labourView}
+                onClick={() => setLabourView(false)}
+              >
+                <Timer size={15} />
+                Elapsed time
+              </button>
+              <button
+                aria-pressed={labourView}
+                onClick={() => setLabourView(true)}
+              >
+                <Users size={15} />
+                Labour hours
               </button>
             </div>
           </div>
@@ -438,6 +492,22 @@ export default function DashboardPage() {
             <div className="hint">{formatDuration(totals.slowestMs)} average</div>
           </div>
           <div className="stat">
+            <div className="k">{labourView ? "Labour hours" : "Elapsed total"}</div>
+            <div className="v">
+              {formatDuration(labourView ? totals.labourMs : totals.elapsedMs)}
+            </div>
+            <div className="hint">
+              {labourView
+                ? "Elapsed multiplied by crew size"
+                : "Wall time regardless of how many worked it"}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="k">Sent back to queue</div>
+            <div className="v">{totals.interruptions}</div>
+            <div className="hint">Across every record in range</div>
+          </div>
+          <div className="stat">
             <div className="k">Needs review</div>
             <div className="v">{totals.flagged + totals.incomplete}</div>
             <div className="hint">
@@ -457,6 +527,10 @@ export default function DashboardPage() {
             <button aria-pressed={tab === "lots"} onClick={() => setTab("lots")}>
               <ListOrdered size={15} />
               By lot
+            </button>
+            <button aria-pressed={tab === "pos"} onClick={() => setTab("pos")}>
+              <FileText size={15} />
+              Purchase orders
             </button>
             <button aria-pressed={tab === "raw"} onClick={() => setTab("raw")}>
               <Clock3 size={15} />
@@ -603,12 +677,9 @@ export default function DashboardPage() {
                     <th>Step</th>
                     <th>Area</th>
                     <th>Date</th>
-                    <th>Queue in</th>
-                    <th>Queue in by</th>
-                    <th>Queue out</th>
-                    <th>Process in</th>
-                    <th>Process out</th>
-                    <th>Process out by</th>
+                    <th>Crew</th>
+                    <th>Stretches</th>
+                    <th>Sent back</th>
                     <th>Queue</th>
                     <th>Process</th>
                     <th>Off shift</th>
@@ -629,12 +700,14 @@ export default function DashboardPage() {
                       <td>{r.step?.step_name}</td>
                       <td>{r.step?.area}</td>
                       <td className="mono">{r.log.log_date}</td>
-                      <td className="mono">{formatStamp(r.log.queue_in)}</td>
-                      <td>{opNames.get(r.log.queue_in_by ?? "") ?? ""}</td>
-                      <td className="mono">{formatStamp(r.log.queue_out)}</td>
-                      <td className="mono">{formatStamp(r.log.process_in)}</td>
-                      <td className="mono">{formatStamp(r.log.process_out)}</td>
-                      <td>{opNames.get(r.log.process_out_by ?? "") ?? ""}</td>
+                      <td>
+                        {crewOf(r.segments)
+                          .map((id) => opNames.get(id))
+                          .filter(Boolean)
+                          .join(", ")}
+                      </td>
+                      <td>{r.segments.length || ""}</td>
+                      <td>{r.interruptions || ""}</td>
                       <td>{r.queueMs ? formatDuration(r.queueMs) : ""}</td>
                       <td>{r.processMs ? formatDuration(r.processMs) : ""}</td>
                       <td>
@@ -667,6 +740,93 @@ export default function DashboardPage() {
             )}
             {filtered.length === 0 && (
               <div className="empty">Nothing matches these filters.</div>
+            )}
+          </div>
+        )}
+
+        {tab === "pos" && (
+          <div className="panel">
+            <h2 className="section-title">
+              Purchase orders at incoming and final inspection
+            </h2>
+            {poRows.length === 0 ? (
+              <div className="empty">
+                No purchase order records in this range.
+              </div>
+            ) : (
+              <>
+                <div className="grid-3" style={{ marginBottom: 16 }}>
+                  <div className="stat">
+                    <div className="k">Records</div>
+                    <div className="v">{poRows.length}</div>
+                  </div>
+                  <div className="stat">
+                    <div className="k">Average queue</div>
+                    <div className="v">
+                      {formatDuration(
+                        poRows.filter((r) => r.queueMs > 0).length
+                          ? poRows.reduce((a, r) => a + r.queueMs, 0) /
+                              poRows.filter((r) => r.queueMs > 0).length
+                          : 0
+                      )}
+                    </div>
+                  </div>
+                  <div className="stat">
+                    <div className="k">Average process</div>
+                    <div className="v">
+                      {formatDuration(
+                        poRows.filter((r) => r.processMs > 0).length
+                          ? poRows.reduce((a, r) => a + r.processMs, 0) /
+                              poRows.filter((r) => r.processMs > 0).length
+                          : 0
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="table-wrap scroll-y" style={{ maxHeight: 560 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>PO</th>
+                        <th>Station</th>
+                        <th>Date</th>
+                        <th>Queue</th>
+                        <th>Process</th>
+                        <th>Total</th>
+                        <th>Labour</th>
+                        <th>Sent back</th>
+                        <th>State</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {poRows.map((r) => (
+                        <tr key={r.po.id}>
+                          <td className="mono">{r.po.po_number}</td>
+                          <td>{r.step?.step_name}</td>
+                          <td className="mono">{r.po.log_date}</td>
+                          <td>{formatDuration(r.queueMs)}</td>
+                          <td>{formatDuration(r.processMs)}</td>
+                          <td>
+                            <strong>{formatDuration(r.totalMs)}</strong>
+                          </td>
+                          <td>{formatDuration(r.labourMs)}</td>
+                          <td>{r.interruptions || ""}</td>
+                          <td>
+                            {r.po.deleted_at ? (
+                              <span className="badge bad">Deleted</span>
+                            ) : r.running ? (
+                              <span className="badge warn">Running</span>
+                            ) : (
+                              <span className="badge ok">Done</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}

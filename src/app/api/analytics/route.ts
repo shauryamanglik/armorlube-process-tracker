@@ -26,8 +26,18 @@ export async function GET(req: Request) {
   if (to) query = query.lte("log_date", to);
   if (!includeDeleted) query = query.is("deleted_at", null);
 
-  const [logsRes, stepsRes, opsRes, settings] = await Promise.all([
+  let poQuery = supabaseAdmin
+    .from("po_logs")
+    .select("*")
+    .order("log_date", { ascending: false })
+    .limit(20000);
+  if (from) poQuery = poQuery.gte("log_date", from);
+  if (to) poQuery = poQuery.lte("log_date", to);
+  if (!includeDeleted) poQuery = poQuery.is("deleted_at", null);
+
+  const [logsRes, poRes, stepsRes, opsRes, settings] = await Promise.all([
     query,
+    poQuery,
     supabaseAdmin.from("steps").select("*").order("sort_order"),
     supabaseAdmin.from("operators").select("*").order("name"),
     loadSettings(),
@@ -37,8 +47,23 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: logsRes.error.message }, { status: 500 });
   }
 
+  // Intervals for everything in range, fetched in one go rather than per row.
+  const logIds = (logsRes.data ?? []).map((l) => l.id);
+  const poIds = (poRes.data ?? []).map((l) => l.id);
+
+  const [logSegs, poSegs] = await Promise.all([
+    logIds.length
+      ? supabaseAdmin.from("segments").select("*").in("log_id", logIds)
+      : Promise.resolve({ data: [] }),
+    poIds.length
+      ? supabaseAdmin.from("segments").select("*").in("po_log_id", poIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
   return NextResponse.json({
     logs: logsRes.data ?? [],
+    poLogs: poRes.data ?? [],
+    segments: [...(logSegs.data ?? []), ...(poSegs.data ?? [])],
     steps: stepsRes.data ?? [],
     operators: opsRes.data ?? [],
     rules: settings
