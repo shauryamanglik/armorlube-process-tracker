@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { drain, pendingCount, watchConnection } from "@/lib/offline";
-import type { ActiveLot, Operator, Step } from "@/lib/types";
+import { liveSteps, type ActiveLot, type Operator, type Step } from "@/lib/types";
 import StationPanel from "@/components/StationPanel";
 
 function LogScreen() {
@@ -45,6 +45,8 @@ function LogScreen() {
   useEffect(() => {
     void (async () => {
       const { data } = await supabase.from("steps").select("*").order("sort_order");
+      // A station opened from a bookmark may point at a retired step, so keep
+      // the full list for lookups and filter when offering choices.
       if (data) setSteps(data as Step[]);
       await Promise.all([loadOperators(), loadLots()]);
       setLoading(false);
@@ -173,7 +175,7 @@ function LogScreen() {
               <StationPanel
                 step={s}
                 operators={operators}
-                allSteps={steps}
+                allSteps={liveSteps(steps)}
                 lots={lots}
                 onOperatorsChanged={() => void loadOperators()}
                 onLotsChanged={() => void loadLots()}

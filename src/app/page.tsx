@@ -13,7 +13,7 @@ import {
   Timer,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import type { Step } from "@/lib/types";
+import { liveSteps, type Step } from "@/lib/types";
 
 const LAST_STATION = "apt.station.v1";
 
@@ -32,7 +32,7 @@ export default function Home() {
         .select("*")
         .order("sort_order");
       if (error) setError("Could not reach the database. Check the connection.");
-      else setSteps(data as Step[]);
+      else setSteps(liveSteps(data as Step[]));
       setLoading(false);
     })();
   }, []);

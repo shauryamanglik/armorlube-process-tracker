@@ -31,6 +31,7 @@ import {
 } from "@/lib/analytics";
 import { DEFAULT_RULES, formatDuration, toHours } from "@/lib/time";
 import { crewOf } from "@/lib/segments";
+import { liveSteps } from "@/lib/types";
 import type {
   LogRow,
   Operator,
@@ -148,6 +149,9 @@ export default function DashboardPage() {
     [data]
   );
 
+  /** Choices offered in filters exclude retired steps. */
+  const choiceSteps = useMemo(() => liveSteps(data?.steps ?? []), [data]);
+
   const rows: Enriched[] = useMemo(() => {
     if (!data) return [];
     return enrich(
@@ -196,8 +200,8 @@ export default function DashboardPage() {
   const trend = useMemo(() => trendByDay(filtered), [filtered]);
   const lots = useMemo(() => summariseLots(filtered), [filtered]);
   const skips = useMemo(
-    () => skippedSteps(filtered, data?.steps ?? []),
-    [filtered, data]
+    () => skippedSteps(filtered, choiceSteps),
+    [filtered, choiceSteps]
   );
   const rework = useMemo(() => reworkCount(filtered), [filtered]);
 
@@ -380,7 +384,7 @@ export default function DashboardPage() {
                 onChange={(e) => setArea(e.target.value)}
               >
                 <option value="">All areas</option>
-                {Array.from(new Set((data?.steps ?? []).map((s) => s.area))).map(
+                {Array.from(new Set(choiceSteps.map((s) => s.area))).map(
                   (a) => (
                     <option key={a} value={a}>
                       {a}
@@ -397,7 +401,7 @@ export default function DashboardPage() {
                 onChange={(e) => setStepId(e.target.value)}
               >
                 <option value="">All steps</option>
-                {(data?.steps ?? []).map((s) => (
+                {choiceSteps.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.step_name}
                   </option>

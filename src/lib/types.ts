@@ -16,7 +16,17 @@ export type Step = {
   is_entry?: boolean;
   is_final?: boolean;
   tracks_po?: boolean;
+  /** Retired steps stay in the database so old records keep a valid
+   *  reference, but they never appear in the pickers or routing. */
+  active?: boolean;
 };
+
+/** Steps still running on the line, in order. */
+export function liveSteps(steps: Step[]): Step[] {
+  return steps
+    .filter((s) => s.active !== false)
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
 
 export type ActiveLot = {
   lot_id: string;
