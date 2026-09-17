@@ -146,10 +146,20 @@ export default function Home() {
                     >
                       {s.step_name}
                       <span className="step-caps">
-                        {s.has_queue && <span className="badge">Queue</span>}
-                        {s.has_process && <span className="badge">Process</span>}
+                        {s.tracks_lots === false ? (
+                          <span className="badge info">Purchase orders only</span>
+                        ) : (
+                          <>
+                            {s.tracks_po && (
+                              <span className="badge info">Lots and POs</span>
+                            )}
+                            {s.is_final && (
+                              <span className="badge ok">Lot ends here</span>
+                            )}
+                          </>
+                        )}
                         {s.has_blast_type && (
-                          <span className="badge info">Blast type</span>
+                          <span className="badge warn">Blast type</span>
                         )}
                       </span>
                       {!splitMode && <ArrowRight size={17} color="#6b7886" />}

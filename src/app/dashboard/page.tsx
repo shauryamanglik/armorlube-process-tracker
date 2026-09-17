@@ -20,8 +20,18 @@ import {
 } from "lucide-react";
 import {
   bucketBy,
+  dailySeries,
+  dailySeriesPo,
+  dailySplit,
   enrich,
   enrichPos,
+  interruptionsByStep,
+  METRIC_LABEL,
+  summarisePos,
+  throughputByDay,
+  toPoCsv,
+  type Aggregate,
+  type Metric,
   reworkCount,
   skippedSteps,
   summariseLots,
@@ -41,6 +51,7 @@ import type {
   WorkRules,
 } from "@/lib/types";
 import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
+import { ChartBlock, DayBars, DayLines } from "@/components/ChartBlock";
 
 const KEY_STORE = "apt.key.v1";
 
@@ -86,6 +97,9 @@ export default function DashboardPage() {
   >("charts");
   /** Elapsed time is the headline. Labour hours are opt in. */
   const [labourView, setLabourView] = useState(false);
+  /** Which measure the day by day charts plot, and how a day is summarised. */
+  const [metric, setMetric] = useState<Metric>("total");
+  const [agg, setAgg] = useState<Aggregate>("avg");
 
   useEffect(() => {
     const saved = sessionStorage.getItem(KEY_STORE);
@@ -199,6 +213,28 @@ export default function DashboardPage() {
   const byArea = useMemo(() => bucketBy(filtered, "area"), [filtered]);
   const trend = useMemo(() => trendByDay(filtered), [filtered]);
   const lots = useMemo(() => summariseLots(filtered), [filtered]);
+
+  const stepDaily = useMemo(
+    () => dailySeries(filtered, (r) => r.step?.step_name, metric, agg),
+    [filtered, metric, agg]
+  );
+  const areaDaily = useMemo(
+    () => dailySeries(filtered, (r) => r.step?.area, metric, agg),
+    [filtered, metric, agg]
+  );
+  const splitDaily = useMemo(() => dailySplit(filtered, agg), [filtered, agg]);
+  const throughput = useMemo(() => throughputByDay(filtered), [filtered]);
+  const interruptionRows = useMemo(
+    () => interruptionsByStep(filtered),
+    [filtered]
+  );
+  const poSummaries = useMemo(() => summarisePos(poRows), [poRows]);
+  const poDaily = useMemo(
+    () => dailySeriesPo(poRows, metric, agg),
+    [poRows, metric, agg]
+  );
+
+  const controlProps = { metric, setMetric, agg, setAgg };
   const skips = useMemo(
     () => skippedSteps(filtered, choiceSteps),
     [filtered, choiceSteps]
@@ -225,6 +261,24 @@ export default function DashboardPage() {
       elapsedMs: filtered.reduce((a, r) => a + r.totalMs, 0),
     };
   }, [filtered, byStep]);
+
+  /** Average of the values that actually happened, ignoring empty ones. */
+  function avgOf(values: number[]): number {
+    const real = values.filter((v) => v > 0);
+    if (real.length === 0) return 0;
+    return real.reduce((a, b) => a + b, 0) / real.length;
+  }
+
+  function exportPoCsv() {
+    const csv = toPoCsv(poRows, opNames);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `armorlube-purchase-orders-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function exportCsv() {
     const csv = toCsv(filtered, opNames);
@@ -552,75 +606,153 @@ export default function DashboardPage() {
 
         {tab === "charts" && (
           <div className="stack">
-            <div className="panel">
-              <h2 className="section-title">Queue and process time by step</h2>
-              <SplitBars buckets={byStep} />
-            </div>
+            <ChartBlock
+              title="Each step, day by day"
+              description={
+                <>
+                  One line per step, one point per day. The number is the{" "}
+                  <strong>
+                    {agg === "avg"
+                      ? "average across the lots worked at that step that day"
+                      : "total across every lot worked at that step that day"}
+                  </strong>
+                  , showing {METRIC_LABEL[metric].toLowerCase()}. Days are kept
+                  separate rather than rolled into one figure, so a run of slow
+                  days shows up instead of being averaged away. A gap means no
+                  lot was worked at that step on that day.
+                </>
+              }
+              rows={stepDaily.data}
+              columns={stepDaily.series}
+              controls={<MetricControls {...controlProps} />}
+            >
+              <DayLines data={stepDaily.data} series={stepDaily.series} />
+            </ChartBlock>
+
+            <ChartBlock
+              title="Queue against process, day by day"
+              description={
+                <>
+                  The same days split into waiting and working.{" "}
+                  <strong>Queue</strong> is time a lot sat before work started,
+                  including any stretch it was sent back. <strong>Process</strong>{" "}
+                  is hands-on time. Bars are stacked, so the full height is the
+                  whole time a lot spent at a step that day. A tall amber portion
+                  means lots are waiting, not that work is slow.
+                </>
+              }
+              rows={splitDaily}
+              columns={["Queue", "Process"]}
+              controls={<MetricControls {...controlProps} hideMetric />}
+            >
+              <DayBars data={splitDaily} series={["Queue", "Process"]} stacked />
+            </ChartBlock>
+
+            <ChartBlock
+              title="Each area, day by day"
+              description={
+                <>
+                  The same measure grouped by area instead of by step, which is
+                  the quicker read when you want to know which part of the floor
+                  is holding things up rather than which individual station.
+                </>
+              }
+              rows={areaDaily.data}
+              columns={areaDaily.series}
+              controls={<MetricControls {...controlProps} />}
+            >
+              <DayLines data={areaDaily.data} series={areaDaily.series} />
+            </ChartBlock>
+
             <div className="grid-2">
-              <div className="panel">
-                <h2 className="section-title">Average queue time by step</h2>
-                <StepBars buckets={byStep} metric="queueAvg" />
-              </div>
-              <div className="panel">
-                <h2 className="section-title">Average process time by step</h2>
-                <StepBars buckets={byStep} metric="processAvg" />
-              </div>
-            </div>
-            <div className="grid-2">
-              <div className="panel">
-                <h2 className="section-title">Average time by area</h2>
-                <SplitBars buckets={byArea} />
-              </div>
-              <div className="panel">
-                <h2 className="section-title">Total logged time by step</h2>
-                <LoadBars buckets={byStep} />
-                <p className="hint" style={{ marginTop: 8 }}>
-                  Bars in violet contain at least one record that crosses a shift
-                  boundary.
-                </p>
-              </div>
-            </div>
-            <div className="panel">
-              <h2 className="section-title">Daily average, queue against process</h2>
-              <Trend points={trend} />
+              <ChartBlock
+                title="Step comparison across the whole range"
+                description={
+                  <>
+                    Every day in the range collapsed into one bar per step, split
+                    into queue and process. Use this to rank steps against each
+                    other. Use the day by day charts above to see whether a step
+                    is consistently slow or was slow on particular days.
+                  </>
+                }
+                rows={byStep.map((b) => ({
+                  date: b.label,
+                  Queue: toHours(b.queueAvg),
+                  Process: toHours(b.processAvg),
+                  Records: b.count,
+                }))}
+                columns={["Queue", "Process", "Records"]}
+              >
+                <SplitBars buckets={byStep} />
+              </ChartBlock>
+
+              <ChartBlock
+                title="Lots finished per day"
+                description={
+                  <>
+                    Distinct lots whose process interval closed at{" "}
+                    <strong>Defixturing/Final Inspection</strong>, which is where
+                    a lot now ends. This is throughput, not time, so it answers
+                    how much got out the door rather than how long anything took.
+                  </>
+                }
+                rows={throughput}
+                columns={["Lots"]}
+                unit="count"
+              >
+                <DayBars data={throughput} series={["Lots"]} unit="" />
+              </ChartBlock>
             </div>
 
-            <div className="panel">
-              <h2 className="section-title">Steps passed over</h2>
-              {skips.length === 0 ? (
-                <div className="empty">
-                  No lot skipped a step inside this range.
-                </div>
-              ) : (
-                <>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Step</th>
-                          <th>Area</th>
-                          <th>Lots that skipped it</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {skips.map((sk) => (
-                          <tr key={sk.step}>
-                            <td>{sk.step}</td>
-                            <td>{sk.area}</td>
-                            <td>
-                              <strong>{sk.skipped}</strong>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="hint" style={{ marginTop: 8 }}>
-                    Worked out from gaps in each lot's route. A lot logged at
-                    Degrease and then Fixturing skipped everything between.
-                  </p>
-                </>
-              )}
+            <div className="grid-2">
+              <ChartBlock
+                title="Work sent back to queue"
+                description={
+                  <>
+                    How often a lot was pushed back into the queue part way
+                    through a step, by step. <strong>Times sent back</strong> is
+                    the raw count, <strong>per record</strong> is that divided by
+                    the number of records, which is the fairer comparison when
+                    one step handles far more lots than another.
+                  </>
+                }
+                rows={interruptionRows}
+                columns={["Times sent back", "Per record"]}
+                unit="count"
+              >
+                <DayBars
+                  data={interruptionRows}
+                  series={["Times sent back", "Per record"]}
+                  unit=""
+                />
+              </ChartBlock>
+
+              <ChartBlock
+                title="Steps passed over"
+                description={
+                  <>
+                    Worked out from gaps in each lot's route rather than stored
+                    anywhere. A lot logged at Degrease and then Fixturing skipped
+                    everything between, so those steps count here. It cannot tell
+                    a deliberate skip from a missed log.
+                  </>
+                }
+                rows={skips.map((sk) => ({
+                  date: sk.step,
+                  "Lots that skipped it": sk.skipped,
+                }))}
+                columns={["Lots that skipped it"]}
+                unit="count"
+              >
+                <DayBars
+                  data={skips.map((sk) => ({
+                    date: sk.step,
+                    "Lots that skipped it": sk.skipped,
+                  }))}
+                  series={["Lots that skipped it"]}
+                  unit=""
+                />
+              </ChartBlock>
             </div>
           </div>
         )}
@@ -749,45 +881,115 @@ export default function DashboardPage() {
         )}
 
         {tab === "pos" && (
-          <div className="panel">
-            <h2 className="section-title">
-              Purchase orders at incoming and final inspection
-            </h2>
-            {poRows.length === 0 ? (
-              <div className="empty">
-                No purchase order records in this range.
-              </div>
-            ) : (
-              <>
-                <div className="grid-3" style={{ marginBottom: 16 }}>
-                  <div className="stat">
-                    <div className="k">Records</div>
-                    <div className="v">{poRows.length}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="k">Average queue</div>
-                    <div className="v">
-                      {formatDuration(
-                        poRows.filter((r) => r.queueMs > 0).length
-                          ? poRows.reduce((a, r) => a + r.queueMs, 0) /
-                              poRows.filter((r) => r.queueMs > 0).length
-                          : 0
-                      )}
-                    </div>
-                  </div>
-                  <div className="stat">
-                    <div className="k">Average process</div>
-                    <div className="v">
-                      {formatDuration(
-                        poRows.filter((r) => r.processMs > 0).length
-                          ? poRows.reduce((a, r) => a + r.processMs, 0) /
-                              poRows.filter((r) => r.processMs > 0).length
-                          : 0
-                      )}
-                    </div>
-                  </div>
-                </div>
+          <div className="stack">
+            <div className="row">
+              <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>
+                Purchase orders are tracked at Incoming Inspection, where boxes
+                are unpacked and logged, and at Oil/Shipping, where orders are
+                packed out. They are timed the same way lots are and are kept
+                entirely separate from them, because one order can span several
+                lots and one lot can hold several orders.
+              </p>
+              <div className="spacer" />
+              <button className="btn sm" onClick={exportPoCsv}>
+                <Download size={15} />
+                PO CSV
+              </button>
+            </div>
 
+            <div className="grid-4">
+              <div className="stat">
+                <div className="k">Orders</div>
+                <div className="v">{poSummaries.length}</div>
+                <div className="hint">{poRows.length} station records</div>
+              </div>
+              <div className="stat">
+                <div className="k">Average queue</div>
+                <div className="v">
+                  {formatDuration(
+                    avgOf(poRows.map((r) => r.queueMs))
+                  )}
+                </div>
+                <div className="hint">Waiting before work starts</div>
+              </div>
+              <div className="stat">
+                <div className="k">Average process</div>
+                <div className="v">
+                  {formatDuration(avgOf(poRows.map((r) => r.processMs)))}
+                </div>
+                <div className="hint">Hands-on time per station</div>
+              </div>
+              <div className="stat">
+                <div className="k">Still open</div>
+                <div className="v">
+                  {poRows.filter((r) => r.running).length}
+                </div>
+                <div className="hint">Orders with a timer running</div>
+              </div>
+            </div>
+
+            <ChartBlock
+              title="Purchase orders by station, day by day"
+              description={
+                <>
+                  One line per station, one point per day, showing{" "}
+                  <strong>{METRIC_LABEL[metric].toLowerCase()}</strong> as{" "}
+                  {agg === "avg"
+                    ? "the average across the orders handled that day"
+                    : "the total across every order handled that day"}
+                  . Incoming Inspection covers unpacking and paperwork,
+                  Oil/Shipping covers packing out.
+                </>
+              }
+              rows={poDaily.data}
+              columns={poDaily.series}
+              controls={<MetricControls {...controlProps} />}
+            >
+              <DayLines data={poDaily.data} series={poDaily.series} />
+            </ChartBlock>
+
+            <ChartBlock
+              title="Time per purchase order"
+              description={
+                <>
+                  Every station an order touched, added together. Sorted slowest
+                  first, so the orders that ate the most time are at the top.{" "}
+                  <strong>Labour</strong> multiplies each stretch by how many
+                  people were on it, so it exceeds total whenever more than one
+                  person worked an order.
+                </>
+              }
+              rows={poSummaries.slice(0, 40).map((r) => ({
+                date: r.po,
+                Queue: toHours(r.queueMs),
+                Process: toHours(r.processMs),
+                Total: toHours(r.totalMs),
+                Labour: toHours(r.labourMs),
+              }))}
+              columns={["Queue", "Process", "Total", "Labour"]}
+            >
+              <DayBars
+                data={poSummaries.slice(0, 20).map((r) => ({
+                  date: r.po,
+                  Queue: toHours(r.queueMs),
+                  Process: toHours(r.processMs),
+                }))}
+                series={["Queue", "Process"]}
+                stacked
+              />
+            </ChartBlock>
+
+            <div className="panel">
+              <h2 className="section-title">Every purchase order record</h2>
+              <p className="chart-desc">
+                One row per order per station. An order appears twice if it was
+                handled at both ends of the line.
+              </p>
+              {poRows.length === 0 ? (
+                <div className="empty">
+                  No purchase order records in this range.
+                </div>
+              ) : (
                 <div className="table-wrap scroll-y" style={{ maxHeight: 560 }}>
                   <table>
                     <thead>
@@ -799,6 +1001,7 @@ export default function DashboardPage() {
                         <th>Process</th>
                         <th>Total</th>
                         <th>Labour</th>
+                        <th>Crew</th>
                         <th>Sent back</th>
                         <th>State</th>
                       </tr>
@@ -815,6 +1018,12 @@ export default function DashboardPage() {
                             <strong>{formatDuration(r.totalMs)}</strong>
                           </td>
                           <td>{formatDuration(r.labourMs)}</td>
+                          <td>
+                            {crewOf(r.segments)
+                              .map((id) => opNames.get(id))
+                              .filter(Boolean)
+                              .join(", ")}
+                          </td>
                           <td>{r.interruptions || ""}</td>
                           <td>
                             {r.po.deleted_at ? (
@@ -830,8 +1039,8 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
-              </>
-            )}
+              )}
+            </div>
           </div>
         )}
 
@@ -999,5 +1208,47 @@ function SettingsPanel({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Shared measure and aggregation switches for the day by day charts. */
+function MetricControls({
+  metric,
+  setMetric,
+  agg,
+  setAgg,
+  hideMetric,
+}: {
+  metric: Metric;
+  setMetric: (m: Metric) => void;
+  agg: Aggregate;
+  setAgg: (a: Aggregate) => void;
+  hideMetric?: boolean;
+}) {
+  const metrics: Metric[] = ["queue", "process", "total", "labour"];
+  return (
+    <>
+      {!hideMetric && (
+        <div className="seg">
+          {metrics.map((m) => (
+            <button
+              key={m}
+              aria-pressed={metric === m}
+              onClick={() => setMetric(m)}
+            >
+              {METRIC_LABEL[m]}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="seg">
+        <button aria-pressed={agg === "avg"} onClick={() => setAgg("avg")}>
+          Average per lot
+        </button>
+        <button aria-pressed={agg === "sum"} onClick={() => setAgg("sum")}>
+          Total that day
+        </button>
+      </div>
+    </>
   );
 }

@@ -10,7 +10,7 @@ import {
   Wind,
 } from "lucide-react";
 import type { BlastType, Step } from "@/lib/types";
-import { entryField, FIELD_LABEL, liveSteps } from "@/lib/types";
+import { entryField, FIELD_LABEL, lotSteps } from "@/lib/types";
 
 export type RouteChoice = {
   target: Step;
@@ -37,7 +37,7 @@ export default function RouteDialog({
   onConfirm,
   busy,
 }: Props) {
-  const ordered = useMemo(() => liveSteps(steps), [steps]);
+  const ordered = useMemo(() => lotSteps(steps), [steps]);
 
   const nextStep = useMemo(
     () => ordered.find((s) => s.sort_order > from.sort_order) ?? null,

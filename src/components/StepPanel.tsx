@@ -7,6 +7,7 @@ import {
   Clock,
   CornerUpLeft,
   Pencil,
+  Send,
   RotateCcw,
   Trash2,
   TriangleAlert,
@@ -364,6 +365,69 @@ export default function StepPanel({
     onLotsChanged();
   }
 
+  /**
+   * A release step does not time anything. It stamps the moment the lot was
+   * created and opens the routing dialog so it can be sent onward. The stamp
+   * is stored as a zero length process interval, which keeps every record in
+   * the same shape without inventing a duration that did not happen.
+   */
+  async function release() {
+    if (busy) return;
+    if (crew.length === 0) {
+      onToast("Pick at least one name first.");
+      return;
+    }
+    if (!lotValid) {
+      onToast(`Choose or type a lot number. ${LOT_HINT}`);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      let target = record;
+      if (!target) {
+        const { data, error } = await supabase
+          .from("logs")
+          .insert({
+            step_id: step.id,
+            operator_id: crew[0],
+            lot_id: lotId,
+            log_date: timeMode === "custom" ? customDate : todayInPhoenix(),
+            pass_no: 1,
+          })
+          .select()
+          .single();
+        if (error || !data) {
+          onToast("Could not create that lot. Check the connection.");
+          return;
+        }
+        target = data as LogRow;
+        setRecord(target);
+      }
+
+      const ts = stamp();
+      const { error: segErr } = await supabase.from("segments").insert({
+        log_id: target.id,
+        kind: "process",
+        started_at: ts,
+        ended_at: ts,
+        started_by: crew,
+        ended_by: crew,
+      });
+      if (segErr) {
+        onToast("Could not record that. Check the connection.");
+        return;
+      }
+
+      setSegments(await loadSegments({ kind: "log", id: target.id }));
+      await loadRecent();
+      onLotsChanged();
+      setRouting({ lot: lotId, stamp: ts });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const arrivedFrom = record?.auto_from_step_id
     ? allSteps.find((x) => x.id === record.auto_from_step_id)?.step_name ?? null
     : null;
@@ -470,18 +534,52 @@ export default function StepPanel({
         </div>
       </div>
 
-      <PhaseControls
-        segments={segments}
-        step={step}
-        operators={operators}
-        linked={linked}
-        onLinkChange={setLinked}
-        onPress={(a) => void press(a)}
-        disabled={busy || !lotValid}
-        arrivedFrom={arrivedFrom}
-      />
+      {step.release_only ? (
+        <div className="stack">
+          <button
+            className="release-btn"
+            disabled={busy || !lotValid}
+            onClick={() => void release()}
+          >
+            <Send size={22} />
+            <span>
+              <span className="r-main">Release lot</span>
+              <span className="r-sub">
+                Records the moment it was created, then asks where it goes
+              </span>
+            </span>
+          </button>
+          {segments.length > 0 && (
+            <div className="lot-status known">
+              <CircleCheck size={16} />
+              <span>
+                Lot {lotId} was released at{" "}
+                <span className="mono">
+                  {formatStamp(segments[0].started_at)}
+                </span>
+                .
+              </span>
+            </div>
+          )}
+          <p className="hint">
+            Lots are not timed here. They queue at the next step, so this
+            station only records when the lot came into existence.
+          </p>
+        </div>
+      ) : (
+        <PhaseControls
+          segments={segments}
+          step={step}
+          operators={operators}
+          linked={linked}
+          onLinkChange={setLinked}
+          onPress={(a) => void press(a)}
+          disabled={busy || !lotValid}
+          arrivedFrom={arrivedFrom}
+        />
+      )}
 
-      {(q.count > 0 || p.count > 0) && (
+      {!step.release_only && (q.count > 0 || p.count > 0) && (
         <div className="grid-2">
           <div className="stat">
             <div className="k">Queue total</div>

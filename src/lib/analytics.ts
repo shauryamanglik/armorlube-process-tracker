@@ -1,4 +1,4 @@
-import { measureSpan, spanValue, type Span } from "./time";
+import { measureSpan, spanValue, toHours, type Span } from "./time";
 import { byParent, crewOf, interruptions, rollup } from "./segments";
 import type { LogRow, PoLog, Segment, Step, WorkRules } from "./types";
 
@@ -353,5 +353,242 @@ export function toCsv(rows: Enriched[], opNames: Map<string, string>): string {
       .join(",")
   );
 
+  return [head.join(","), ...lines].join("\n");
+}
+
+
+// ============================================================
+// Day by day series
+// ============================================================
+
+export type Metric = "queue" | "process" | "total" | "labour";
+export type Aggregate = "avg" | "sum";
+
+export const METRIC_LABEL: Record<Metric, string> = {
+  queue: "Queue time",
+  process: "Process time",
+  total: "Queue plus process",
+  labour: "Labour hours",
+};
+
+function pick(r: Enriched, m: Metric): number {
+  if (m === "queue") return r.queueMs;
+  if (m === "process") return r.processMs;
+  if (m === "labour") return r.labourMs;
+  return r.totalMs;
+}
+
+function pickPo(r: EnrichedPo, m: Metric): number {
+  if (m === "queue") return r.queueMs;
+  if (m === "process") return r.processMs;
+  if (m === "labour") return r.labourMs;
+  return r.totalMs;
+}
+
+function combine(values: number[], how: Aggregate): number {
+  const real = values.filter((v) => v > 0);
+  if (real.length === 0) return 0;
+  const total = real.reduce((a, b) => a + b, 0);
+  return how === "sum" ? total : total / real.length;
+}
+
+/**
+ * One row per day, one column per step. Keeps every day separate rather than
+ * collapsing the range into a single figure, so a run of slow days is visible
+ * rather than averaged away.
+ */
+export type DayRow = { date: string; [series: string]: string | number };
+
+export function dailySeries(
+  rows: Enriched[],
+  keyOf: (r: Enriched) => string | undefined,
+  metric: Metric,
+  how: Aggregate
+): { data: DayRow[]; series: string[] } {
+  const days = new Map<string, Map<string, number[]>>();
+  const seriesSeen = new Set<string>();
+
+  for (const r of rows) {
+    const key = keyOf(r);
+    if (!key) continue;
+    const value = pick(r, metric);
+    if (value <= 0) continue;
+    seriesSeen.add(key);
+    const day = days.get(r.log.log_date) ?? new Map<string, number[]>();
+    const list = day.get(key) ?? [];
+    list.push(value);
+    day.set(key, list);
+    days.set(r.log.log_date, day);
+  }
+
+  const series = Array.from(seriesSeen);
+  const data: DayRow[] = Array.from(days.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, byKey]) => {
+      const row: DayRow = { date };
+      for (const k of series) {
+        row[k] = toHours(combine(byKey.get(k) ?? [], how));
+      }
+      return row;
+    });
+
+  return { data, series };
+}
+
+/** Same shape for purchase orders, keyed by station. */
+export function dailySeriesPo(
+  rows: EnrichedPo[],
+  metric: Metric,
+  how: Aggregate
+): { data: DayRow[]; series: string[] } {
+  const days = new Map<string, Map<string, number[]>>();
+  const seriesSeen = new Set<string>();
+
+  for (const r of rows) {
+    const key = r.step?.step_name;
+    if (!key) continue;
+    const value = pickPo(r, metric);
+    if (value <= 0) continue;
+    seriesSeen.add(key);
+    const day = days.get(r.po.log_date) ?? new Map<string, number[]>();
+    const list = day.get(key) ?? [];
+    list.push(value);
+    day.set(key, list);
+    days.set(r.po.log_date, day);
+  }
+
+  const series = Array.from(seriesSeen);
+  const data: DayRow[] = Array.from(days.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, byKey]) => {
+      const row: DayRow = { date };
+      for (const k of series) row[k] = toHours(combine(byKey.get(k) ?? [], how));
+      return row;
+    });
+
+  return { data, series };
+}
+
+/** Queue against process for one day, so the split is visible per day. */
+export function dailySplit(rows: Enriched[], how: Aggregate): DayRow[] {
+  const days = new Map<string, { q: number[]; p: number[] }>();
+  for (const r of rows) {
+    const d = days.get(r.log.log_date) ?? { q: [], p: [] };
+    if (r.queueMs > 0) d.q.push(r.queueMs);
+    if (r.processMs > 0) d.p.push(r.processMs);
+    days.set(r.log.log_date, d);
+  }
+  return Array.from(days.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, d]) => ({
+      date,
+      Queue: toHours(combine(d.q, how)),
+      Process: toHours(combine(d.p, how)),
+    }));
+}
+
+/** Lots finished per day, from records at the step that ends the line. */
+export function throughputByDay(rows: Enriched[]): DayRow[] {
+  const days = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!r.step?.is_final) continue;
+    if (r.incomplete) continue;
+    const set = days.get(r.log.log_date) ?? new Set<string>();
+    set.add(r.log.lot_id);
+    days.set(r.log.log_date, set);
+  }
+  return Array.from(days.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, set]) => ({ date, Lots: set.size }));
+}
+
+/** How often work is interrupted at each step. */
+export function interruptionsByStep(rows: Enriched[]): DayRow[] {
+  const byStep = new Map<string, { total: number; records: number }>();
+  for (const r of rows) {
+    const k = r.step?.step_name;
+    if (!k) continue;
+    const cur = byStep.get(k) ?? { total: 0, records: 0 };
+    cur.total += r.interruptions;
+    cur.records += 1;
+    byStep.set(k, cur);
+  }
+  return Array.from(byStep.entries())
+    .filter(([, v]) => v.total > 0)
+    .map(([name, v]) => ({
+      date: name,
+      "Times sent back": v.total,
+      "Per record": Math.round((v.total / v.records) * 100) / 100,
+    }));
+}
+
+/** Per purchase order totals across every station it touched. */
+export type PoSummary = {
+  po: string;
+  stations: number;
+  queueMs: number;
+  processMs: number;
+  totalMs: number;
+  labourMs: number;
+  interruptions: number;
+  running: boolean;
+};
+
+export function summarisePos(rows: EnrichedPo[]): PoSummary[] {
+  const groups = new Map<string, EnrichedPo[]>();
+  for (const r of rows) {
+    const list = groups.get(r.po.po_number) ?? [];
+    list.push(r);
+    groups.set(r.po.po_number, list);
+  }
+  return Array.from(groups.entries())
+    .map(([po, list]) => ({
+      po,
+      stations: list.length,
+      queueMs: list.reduce((a, r) => a + r.queueMs, 0),
+      processMs: list.reduce((a, r) => a + r.processMs, 0),
+      totalMs: list.reduce((a, r) => a + r.totalMs, 0),
+      labourMs: list.reduce((a, r) => a + r.labourMs, 0),
+      interruptions: list.reduce((a, r) => a + r.interruptions, 0),
+      running: list.some((r) => r.running),
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs);
+}
+
+export function toPoCsv(
+  rows: EnrichedPo[],
+  opNames: Map<string, string>
+): string {
+  const head = [
+    "PO",
+    "Station",
+    "Date",
+    "Queue hours",
+    "Process hours",
+    "Total hours",
+    "Labour hours",
+    "Times sent back",
+    "Crew",
+    "State",
+  ];
+  const lines = rows.map((r) =>
+    [
+      r.po.po_number,
+      r.step?.step_name ?? "",
+      r.po.log_date,
+      (r.queueMs / 3600000).toFixed(2),
+      (r.processMs / 3600000).toFixed(2),
+      (r.totalMs / 3600000).toFixed(2),
+      (r.labourMs / 3600000).toFixed(2),
+      r.interruptions,
+      crewOf(r.segments)
+        .map((id) => opNames.get(id) ?? "")
+        .filter(Boolean)
+        .join(" / "),
+      r.po.deleted_at ? "deleted" : r.running ? "running" : "done",
+    ]
+      .map((c) => `"${String(c)}"`)
+      .join(",")
+  );
   return [head.join(","), ...lines].join("\n");
 }

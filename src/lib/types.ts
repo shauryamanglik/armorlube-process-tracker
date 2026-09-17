@@ -16,6 +16,11 @@ export type Step = {
   is_entry?: boolean;
   is_final?: boolean;
   tracks_po?: boolean;
+  /** False on steps that handle purchase orders only, such as oil and
+   *  shipping, where lots no longer exist because they have been split. */
+  tracks_lots?: boolean;
+  /** True where a lot is created and handed straight on, with no timing. */
+  release_only?: boolean;
   /** Retired steps stay in the database so old records keep a valid
    *  reference, but they never appear in the pickers or routing. */
   active?: boolean;
@@ -26,6 +31,16 @@ export function liveSteps(steps: Step[]): Step[] {
   return steps
     .filter((s) => s.active !== false)
     .sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** Steps a lot can actually be routed to. */
+export function lotSteps(steps: Step[]): Step[] {
+  return liveSteps(steps).filter((s) => s.tracks_lots !== false);
+}
+
+/** Steps that handle purchase orders. */
+export function poSteps(steps: Step[]): Step[] {
+  return liveSteps(steps).filter((s) => s.tracks_po);
 }
 
 export type ActiveLot = {

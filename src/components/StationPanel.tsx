@@ -23,9 +23,27 @@ type Props = {
  * second tab. Every other station goes straight to lot logging.
  */
 export default function StationPanel(props: Props) {
-  const [tab, setTab] = useState<"lots" | "pos">("lots");
+  const [tab, setTab] = useState<"lots" | "pos">(
+    props.step.release_only ? "pos" : "lots"
+  );
 
-  if (!props.step.tracks_po) {
+  const lots = props.step.tracks_lots !== false;
+  const pos = Boolean(props.step.tracks_po);
+
+  // Oil and shipping handles purchase orders only, because by then the lot
+  // has been split up and no longer exists as one thing.
+  if (pos && !lots) {
+    return (
+      <PoPanel
+        step={props.step}
+        operators={props.operators}
+        onOperatorsChanged={props.onOperatorsChanged}
+        onToast={props.onToast}
+      />
+    );
+  }
+
+  if (!pos) {
     return <StepPanel {...props} />;
   }
 
