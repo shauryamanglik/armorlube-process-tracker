@@ -592,3 +592,199 @@ export function toPoCsv(
   );
   return [head.join(","), ...lines].join("\n");
 }
+
+// ============================================================
+// Further breakdowns
+// ============================================================
+
+/**
+ * Hours per person, attributed stretch by stretch.
+ *
+ * Crews change within a record: one person can wait with a lot alone and be
+ * joined by two more once work starts. Splitting a record's total across
+ * everyone who ever touched it would credit the wrong people, so each
+ * interval is divided only among the crew who were actually on it.
+ */
+export function operatorHours(
+  rows: Enriched[],
+  poRows: EnrichedPo[],
+  opNames: Map<string, string>,
+  rules: WorkRules,
+  includeOffShift = false
+): DayRow[] {
+  const tally = new Map<string, { queue: number; process: number }>();
+  const now = new Date().toISOString();
+
+  const creditSegments = (segments: Segment[]) => {
+    for (const seg of segments) {
+      const crew = [
+        ...new Set([...(seg.started_by ?? []), ...(seg.ended_by ?? [])]),
+      ].filter(Boolean);
+      if (crew.length === 0) continue;
+
+      const span = measureSpan(seg.started_at, seg.ended_at ?? now, rules);
+      if (!span) continue;
+      const ms = includeOffShift ? span.rawMs : span.businessMs;
+      if (ms <= 0) continue;
+
+      const each = ms / crew.length;
+      for (const id of crew) {
+        const cur = tally.get(id) ?? { queue: 0, process: 0 };
+        if (seg.kind === "queue") cur.queue += each;
+        else cur.process += each;
+        tally.set(id, cur);
+      }
+    }
+  };
+
+  for (const r of rows) creditSegments(r.segments);
+  for (const r of poRows) creditSegments(r.segments);
+
+  return Array.from(tally.entries())
+    .map(([id, v]) => ({
+      date: opNames.get(id) ?? "Unknown",
+      Queue: toHours(v.queue),
+      Process: toHours(v.process),
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.Queue) + Number(b.Process) - (Number(a.Queue) + Number(a.Process))
+    );
+}
+
+/** What share of time at each step is waiting rather than working. */
+export function waitShare(buckets: Bucket[]): DayRow[] {
+  return buckets
+    .filter((b) => b.queueTotal + b.processTotal > 0)
+    .map((b) => {
+      const total = b.queueTotal + b.processTotal;
+      return {
+        date: b.label,
+        "Waiting %": Math.round((b.queueTotal / total) * 1000) / 10,
+        "Working %": Math.round((b.processTotal / total) * 1000) / 10,
+      };
+    });
+}
+
+/** Manual against automatic blasting. */
+export function blastComparison(rows: Enriched[]): DayRow[] {
+  const kinds = ["Manual Blasting", "Auto Blasting"];
+  const out: DayRow[] = [];
+  for (const k of kinds) {
+    const list = rows.filter((r) => r.log.blast_type === k);
+    if (list.length === 0) continue;
+    const mean = (v: number[]) => {
+      const real = v.filter((x) => x > 0);
+      return real.length ? real.reduce((a, b) => a + b, 0) / real.length : 0;
+    };
+    out.push({
+      date: k.replace(" Blasting", ""),
+      Queue: toHours(mean(list.map((r) => r.queueMs))),
+      Process: toHours(mean(list.map((r) => r.processMs))),
+      Lots: list.length,
+    });
+  }
+  return out;
+}
+
+/** Slowest lots overall, for chasing down outliers. */
+export function slowestLots(rows: Enriched[], limit = 20): DayRow[] {
+  return summariseLots(rows)
+    .slice(0, limit)
+    .map((l) => ({
+      date: l.lot,
+      Queue: toHours(l.queueMs),
+      Process: toHours(l.processMs),
+    }));
+}
+
+/** Does the day of the week matter. */
+export function byWeekday(rows: Enriched[]): DayRow[] {
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const tally = new Map<number, { q: number[]; p: number[] }>();
+  for (const r of rows) {
+    const [y, m, d] = r.log.log_date.split("-").map(Number);
+    const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const cur = tally.get(day) ?? { q: [], p: [] };
+    if (r.queueMs > 0) cur.q.push(r.queueMs);
+    if (r.processMs > 0) cur.p.push(r.processMs);
+    tally.set(day, cur);
+  }
+  const mean = (v: number[]) =>
+    v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+  return [1, 2, 3, 4, 5, 6, 0]
+    .filter((d) => tally.has(d))
+    .map((d) => ({
+      date: names[d].slice(0, 3),
+      Queue: toHours(mean(tally.get(d)!.q)),
+      Process: toHours(mean(tally.get(d)!.p)),
+    }));
+}
+
+/** Purchase orders finished per day. */
+export function poThroughputByDay(rows: EnrichedPo[]): DayRow[] {
+  const days = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (r.running) continue;
+    if (r.totalMs <= 0) continue;
+    const set = days.get(r.po.log_date) ?? new Set<string>();
+    set.add(r.po.po_number);
+    days.set(r.po.log_date, set);
+  }
+  return Array.from(days.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, set]) => ({ date, "Orders closed": set.size }));
+}
+
+/** Waiting against working per purchase order station. */
+export function poWaitShare(rows: EnrichedPo[]): DayRow[] {
+  const byStation = new Map<string, { q: number; p: number }>();
+  for (const r of rows) {
+    const k = r.step?.step_name;
+    if (!k) continue;
+    const cur = byStation.get(k) ?? { q: 0, p: 0 };
+    cur.q += r.queueMs;
+    cur.p += r.processMs;
+    byStation.set(k, cur);
+  }
+  return Array.from(byStation.entries())
+    .filter(([, v]) => v.q + v.p > 0)
+    .map(([name, v]) => ({
+      date: name,
+      "Waiting %": Math.round((v.q / (v.q + v.p)) * 1000) / 10,
+      "Working %": Math.round((v.p / (v.q + v.p)) * 1000) / 10,
+    }));
+}
+
+/** Per station averages for purchase orders. */
+export function poByStation(rows: EnrichedPo[]): DayRow[] {
+  const byStation = new Map<string, EnrichedPo[]>();
+  for (const r of rows) {
+    const k = r.step?.step_name;
+    if (!k) continue;
+    const list = byStation.get(k) ?? [];
+    list.push(r);
+    byStation.set(k, list);
+  }
+  const mean = (v: number[]) => {
+    const real = v.filter((x) => x > 0);
+    return real.length ? real.reduce((a, b) => a + b, 0) / real.length : 0;
+  };
+  return Array.from(byStation.entries()).map(([name, list]) => ({
+    date: name,
+    Queue: toHours(mean(list.map((r) => r.queueMs))),
+    Process: toHours(mean(list.map((r) => r.processMs))),
+    Orders: list.length,
+  }));
+}
+
+/** Slowest purchase orders. */
+export function slowestPos(rows: EnrichedPo[], limit = 20): DayRow[] {
+  return summarisePos(rows)
+    .slice(0, limit)
+    .map((p) => ({
+      date: p.po,
+      Queue: toHours(p.queueMs),
+      Process: toHours(p.processMs),
+    }));
+}

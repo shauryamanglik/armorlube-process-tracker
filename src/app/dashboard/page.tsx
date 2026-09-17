@@ -6,6 +6,7 @@ import {
   BarChart3,
   Clock3,
   Download,
+  FileSpreadsheet,
   FileText,
   Filter,
   Layers,
@@ -25,8 +26,17 @@ import {
   dailySplit,
   enrich,
   enrichPos,
+  blastComparison,
+  byWeekday,
   interruptionsByStep,
   METRIC_LABEL,
+  operatorHours,
+  poByStation,
+  poThroughputByDay,
+  poWaitShare,
+  slowestLots,
+  slowestPos,
+  waitShare,
   summarisePos,
   throughputByDay,
   toPoCsv,
@@ -51,7 +61,8 @@ import type {
   WorkRules,
 } from "@/lib/types";
 import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
-import { ChartBlock, DayBars, DayLines } from "@/components/ChartBlock";
+import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock";
+import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 
 const KEY_STORE = "apt.key.v1";
 
@@ -234,7 +245,35 @@ export default function DashboardPage() {
     [poRows, metric, agg]
   );
 
+  const opHours = useMemo(
+    () => operatorHours(filtered, poRows, opNames, rules, includeOffShift),
+    [filtered, poRows, opNames, rules, includeOffShift]
+  );
+  const shares = useMemo(() => waitShare(byStep), [byStep]);
+  const blastRows = useMemo(() => blastComparison(filtered), [filtered]);
+  const slowLots = useMemo(() => slowestLots(filtered), [filtered]);
+  const weekday = useMemo(() => byWeekday(filtered), [filtered]);
+  const poStationRows = useMemo(() => poByStation(poRows), [poRows]);
+  const poShares = useMemo(() => poWaitShare(poRows), [poRows]);
+  const poThroughput = useMemo(() => poThroughputByDay(poRows), [poRows]);
+  const slowPos = useMemo(() => slowestPos(poRows), [poRows]);
+
   const controlProps = { metric, setMetric, agg, setAgg };
+
+  /** The whole range as a spreadsheet, laid out one row per lot. */
+  function exportExcel() {
+    if (!data) return;
+    const wb = buildWorkbook({
+      rows: filtered,
+      poRows,
+      steps: data.steps,
+      operators: data.operators,
+      from,
+      to,
+      includeOffShift,
+    });
+    downloadWorkbook(wb, `armorlube-process-times-${from}-to-${to}.xlsx`);
+  }
   const skips = useMemo(
     () => skippedSteps(filtered, choiceSteps),
     [filtered, choiceSteps]
@@ -347,6 +386,10 @@ export default function DashboardPage() {
         <button className="btn sm" onClick={() => void load()} disabled={loading}>
           <RefreshCw size={15} />
           {loading ? "Loading" : "Refresh"}
+        </button>
+        <button className="btn sm primary" onClick={exportExcel}>
+          <FileSpreadsheet size={15} />
+          Excel
         </button>
         <button className="btn sm" onClick={exportCsv}>
           <Download size={15} />
@@ -706,6 +749,100 @@ export default function DashboardPage() {
 
             <div className="grid-2">
               <ChartBlock
+                title="How much of each step is waiting"
+                description={
+                  <>
+                    The same time split as a percentage rather than hours, so
+                    steps of very different lengths can be compared fairly. A
+                    step at <strong>80% waiting</strong> is not slow at the
+                    bench, it is starved or blocked, and speeding up the work
+                    there would change almost nothing.
+                  </>
+                }
+                rows={shares}
+                columns={["Waiting %", "Working %"]}
+                unit="count"
+              >
+                <PairBars
+                  data={shares}
+                  series={["Waiting %", "Working %"]}
+                  stacked
+                  angled
+                  unit="%"
+                />
+              </ChartBlock>
+
+              <ChartBlock
+                title="Hours per person"
+                description={
+                  <>
+                    Time credited to each operator across lots and purchase
+                    orders. Where several people worked one stretch the time is{" "}
+                    <strong>split evenly between them</strong>, so the totals add
+                    up to real elapsed time rather than counting the same hour
+                    once per person.
+                  </>
+                }
+                rows={opHours}
+                columns={["Queue", "Process"]}
+              >
+                <PairBars data={opHours} stacked angled />
+              </ChartBlock>
+            </div>
+
+            <div className="grid-2">
+              <ChartBlock
+                title="Slowest lots in range"
+                description={
+                  <>
+                    The twenty lots with the most total time across every step,
+                    split into waiting and working. Useful for chasing outliers:
+                    a lot that is mostly amber sat somewhere, a lot that is
+                    mostly blue genuinely took the work.
+                  </>
+                }
+                rows={slowLots}
+                columns={["Queue", "Process"]}
+              >
+                <PairBars data={slowLots} stacked angled height={360} />
+              </ChartBlock>
+
+              <ChartBlock
+                title="By day of the week"
+                description={
+                  <>
+                    Average queue and process time grouped by weekday across the
+                    whole range. Worth a look if Mondays or Fridays behave
+                    differently from the middle of the week.
+                  </>
+                }
+                rows={weekday}
+                columns={["Queue", "Process"]}
+              >
+                <PairBars data={weekday} />
+              </ChartBlock>
+            </div>
+
+            {blastRows.length > 0 && (
+              <ChartBlock
+                title="Manual against automatic blasting"
+                description={
+                  <>
+                    Average queue and process time for lots recorded as each
+                    blast type. <strong>Lots</strong> in the table view is how
+                    many of each were run, which matters before reading much
+                    into a difference built on a handful of records.
+                  </>
+                }
+                rows={blastRows}
+                columns={["Queue", "Process", "Lots"]}
+              >
+                <PairBars data={blastRows} height={280} />
+              </ChartBlock>
+            )}
+
+            <div className="grid-2">
+              <ChartBlock
                 title="Work sent back to queue"
                 description={
                   <>
@@ -978,6 +1115,85 @@ export default function DashboardPage() {
                 stacked
               />
             </ChartBlock>
+
+            <div className="grid-2">
+              <ChartBlock
+                title="Each station, averaged"
+                description={
+                  <>
+                    Average queue and process time per order at each station.{" "}
+                    <strong>Incoming Inspection</strong> covers unboxing,
+                    counting and the back and forth with customers.{" "}
+                    <strong>Oil/Shipping</strong> covers oiling, packing and
+                    getting orders out.
+                  </>
+                }
+                rows={poStationRows}
+                columns={["Queue", "Process", "Orders"]}
+              >
+                <PairBars data={poStationRows} height={290} />
+              </ChartBlock>
+
+              <ChartBlock
+                title="How much of each station is waiting"
+                description={
+                  <>
+                    Waiting against working as a share of total time. A high
+                    waiting share at incoming usually means orders sat before
+                    anyone got to them, not that unboxing is slow.
+                  </>
+                }
+                rows={poShares}
+                columns={["Waiting %", "Working %"]}
+                unit="count"
+              >
+                <PairBars
+                  data={poShares}
+                  series={["Waiting %", "Working %"]}
+                  stacked
+                  unit="%"
+                  height={290}
+                />
+              </ChartBlock>
+            </div>
+
+            <div className="grid-2">
+              <ChartBlock
+                title="Slowest purchase orders"
+                description={
+                  <>
+                    The twenty orders with the most total time across both
+                    stations, split into waiting and working. Sorted slowest
+                    first.
+                  </>
+                }
+                rows={slowPos}
+                columns={["Queue", "Process"]}
+              >
+                <PairBars data={slowPos} stacked angled height={360} />
+              </ChartBlock>
+
+              <ChartBlock
+                title="Orders closed per day"
+                description={
+                  <>
+                    Orders whose intervals all finished on that day, with none
+                    left running. This is purchase order throughput, the
+                    equivalent of lots finished per day on the lots tab.
+                  </>
+                }
+                rows={poThroughput}
+                columns={["Orders closed"]}
+                unit="count"
+              >
+                <DayBars
+                  data={poThroughput}
+                  series={["Orders closed"]}
+                  unit=""
+                  height={360}
+                />
+              </ChartBlock>
+            </div>
 
             <div className="panel">
               <h2 className="section-title">Every purchase order record</h2>
