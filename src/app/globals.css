@@ -1583,3 +1583,47 @@ tbody tr.clickable:hover {
 .row-link:hover {
   text-decoration: underline;
 }
+
+/* ---------- record editor ---------- */
+
+.edit-seg {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  padding: 14px;
+}
+
+.edit-seg.queue {
+  border-left: 3px solid var(--hold);
+}
+
+.edit-seg.process {
+  border-left: 3px solid var(--info);
+}
+
+.edit-seg .grid-4 {
+  gap: 10px;
+}
+
+@media (max-width: 700px) {
+  .edit-seg .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.skip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(240, 169, 46, 0.4);
+  border-radius: var(--r-md);
+  background: rgba(240, 169, 46, 0.06);
+  flex-shrink: 0;
+}
+
+.skip-row .s-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--hold);
+}

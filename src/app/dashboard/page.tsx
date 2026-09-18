@@ -74,6 +74,7 @@ import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
 import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock";
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
+import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
 import { supabase } from "@/lib/supabase";
 
 const KEY_STORE = "apt.key.v1";
@@ -121,8 +122,13 @@ export default function DashboardPage() {
   /** Which lot or order the detail drawer is showing. */
   const [openLot, setOpenLot] = useState<string | null>(null);
   const [openPo, setOpenPo] = useState<string | null>(null);
+  /** Record currently being edited or created by hand. */
+  const [editing, setEditing] = useState<EditorTarget | null>(null);
   /** Narrow the lots list to live, completed, or those that skipped a step. */
   const [lotView, setLotView] = useState<"all" | "live" | "done" | "skipped">(
+    "all"
+  );
+  const [poView, setPoView] = useState<"all" | "live" | "done" | "partial">(
     "all"
   );
   /** Elapsed time is the headline. Labour hours are opt in. */
@@ -311,6 +317,59 @@ export default function DashboardPage() {
       return statuses.filter((s) => s.skipped.length > 0);
     return statuses;
   }, [statuses, lotView]);
+
+  /** Orders that only reached one of the two stations. */
+  const poStationCount = useMemo(
+    () => (data?.steps ?? []).filter((s) => s.tracks_po && s.active !== false).length,
+    [data]
+  );
+
+  const shownPos = useMemo(() => {
+    if (poView === "live") return poStatusRows.filter((p) => p.live);
+    if (poView === "done") return poStatusRows.filter((p) => !p.live);
+    if (poView === "partial")
+      return poStatusRows.filter((p) => p.records.length < poStationCount);
+    return poStatusRows;
+  }, [poStatusRows, poView, poStationCount]);
+
+  /** Open the editor for an existing lot record. */
+  function editLogRecord(logId: string) {
+    const r = filtered.find((x) => x.log.id === logId);
+    if (!r?.step) return;
+    setEditing({
+      mode: "edit",
+      kind: "log",
+      id: r.log.id,
+      step: r.step,
+      lotId: r.log.lot_id,
+      logDate: r.log.log_date,
+      blastType: r.log.blast_type,
+      notes: r.log.notes,
+      segments: r.segments,
+    });
+  }
+
+  function editPoRecord(poLogId: string) {
+    const r = filteredPos.find((x) => x.po.id === poLogId);
+    if (!r?.step) return;
+    setEditing({
+      mode: "edit",
+      kind: "po",
+      id: r.po.id,
+      step: r.step,
+      poNumber: r.po.po_number,
+      logDate: r.po.log_date,
+      notes: r.po.notes,
+      segments: r.segments,
+    });
+  }
+
+  /** Fill in a step a lot passed over. */
+  function addSkippedStep(lot: string, stepName: string, pass: number) {
+    const step = (data?.steps ?? []).find((s) => s.step_name === stepName);
+    if (!step) return;
+    setEditing({ mode: "create", kind: "log", step, lotId: lot, passNo: pass });
+  }
 
   const controlProps = { metric, setMetric, agg, setAgg };
 
@@ -731,23 +790,23 @@ export default function DashboardPage() {
           <div className="seg">
             <button aria-pressed={tab === "charts"} onClick={() => setTab("charts")}>
               <BarChart3 size={15} />
-              Charts
+              Lot Charts
             </button>
             <button aria-pressed={tab === "lots"} onClick={() => setTab("lots")}>
               <ListOrdered size={15} />
-              By lot
+              By Lots
+            </button>
+            <button aria-pressed={tab === "pos"} onClick={() => setTab("pos")}>
+              <FileText size={15} />
+              PO Charts
             </button>
             <button aria-pressed={tab === "bypo"} onClick={() => setTab("bypo")}>
               <ListOrdered size={15} />
               By PO
             </button>
-            <button aria-pressed={tab === "pos"} onClick={() => setTab("pos")}>
-              <FileText size={15} />
-              PO charts
-            </button>
             <button aria-pressed={tab === "raw"} onClick={() => setTab("raw")}>
               <Clock3 size={15} />
-              Raw records
+              Raw Records
             </button>
             <button
               aria-pressed={tab === "settings"}
@@ -1140,9 +1199,57 @@ export default function DashboardPage() {
 
         {tab === "bypo" && (
           <div className="panel">
+            <div className="row" style={{ marginBottom: 12 }}>
+              <div className="seg">
+                <button
+                  aria-pressed={poView === "all"}
+                  onClick={() => setPoView("all")}
+                >
+                  All POs
+                  <span className="badge">{poStatusRows.length}</span>
+                </button>
+                <button
+                  aria-pressed={poView === "live"}
+                  onClick={() => setPoView("live")}
+                >
+                  <Activity size={15} />
+                  Open
+                  <span className="badge">
+                    {poStatusRows.filter((p) => p.live).length}
+                  </span>
+                </button>
+                <button
+                  aria-pressed={poView === "done"}
+                  onClick={() => setPoView("done")}
+                >
+                  <CircleCheck size={15} />
+                  Completed
+                  <span className="badge">
+                    {poStatusRows.filter((p) => !p.live).length}
+                  </span>
+                </button>
+                <button
+                  aria-pressed={poView === "partial"}
+                  onClick={() => setPoView("partial")}
+                >
+                  <SkipForward size={15} />
+                  Missing a station
+                  <span className="badge">
+                    {
+                      poStatusRows.filter((p) => p.records.length < poStationCount)
+                        .length
+                    }
+                  </span>
+                </button>
+              </div>
+            </div>
             <p className="chart-desc">
               Every purchase order in range with where it is and what it is
-              doing. Click a row for its full history across both stations.
+              doing. Click a row for its full history, and to edit or delete the
+              records behind it. <strong>Missing a station</strong> means the
+              order was logged at one end of the line but not the other, which
+              is normal while it is still in progress and worth a look once it
+              is not.
             </p>
             <div className="table-wrap scroll-y" style={{ maxHeight: 620 }}>
               <table>
@@ -1161,7 +1268,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {poStatusRows.map((p) => (
+                  {shownPos.map((p) => (
                     <tr
                       key={p.po}
                       className="clickable"
@@ -1200,15 +1307,22 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
-            {poStatusRows.length === 0 && (
-              <div className="empty">No purchase order matches these filters.</div>
+            {shownPos.length === 0 && (
+              <div className="empty">No purchase order matches this view.</div>
             )}
           </div>
         )}
 
         {tab === "raw" && (
+          <div className="stack">
           <div className="panel">
-            <h2 className="section-title">Raw records</h2>
+            <div className="row" style={{ marginBottom: 10 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>
+                Lot records
+              </h2>
+              <div className="spacer" />
+              <span className="badge">{filtered.length} rows</span>
+            </div>
             <div className="table-wrap scroll-y" style={{ maxHeight: 640 }}>
               <table>
                 <thead>
@@ -1294,6 +1408,89 @@ export default function DashboardPage() {
             {filtered.length === 0 && (
               <div className="empty">Nothing matches these filters.</div>
             )}
+          </div>
+
+          <div className="panel">
+            <div className="row" style={{ marginBottom: 10 }}>
+              <h2 className="section-title" style={{ margin: 0 }}>
+                Purchase order records
+              </h2>
+              <div className="spacer" />
+              <span className="badge">{filteredPos.length} rows</span>
+              <button className="btn sm" onClick={exportPoCsv}>
+                <Download size={15} />
+                PO CSV
+              </button>
+            </div>
+            {filteredPos.length === 0 ? (
+              <div className="empty">
+                No purchase order records match these filters.
+              </div>
+            ) : (
+              <div className="table-wrap scroll-y" style={{ maxHeight: 520 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>PO</th>
+                      <th>Station</th>
+                      <th>Date</th>
+                      <th>Queue</th>
+                      <th>Process</th>
+                      <th>Total</th>
+                      <th>Labour</th>
+                      <th>Crew</th>
+                      <th>Stretches</th>
+                      <th>Sent back</th>
+                      <th>State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPos.map((r) => (
+                      <tr
+                        key={r.po.id}
+                        className="clickable"
+                        onClick={() => {
+                          setOpenPo(r.po.po_number);
+                          setTab("bypo");
+                        }}
+                      >
+                        <td>
+                          <span className="row-link mono">{r.po.po_number}</span>
+                        </td>
+                        <td>{r.step?.step_name}</td>
+                        <td className="mono">{r.po.log_date}</td>
+                        <td>{formatDuration(r.queueMs)}</td>
+                        <td>{formatDuration(r.processMs)}</td>
+                        <td>
+                          <strong>{formatDuration(r.totalMs)}</strong>
+                        </td>
+                        <td>{formatDuration(r.labourMs)}</td>
+                        <td>
+                          {crewOf(r.segments)
+                            .map((id) => opNames.get(id))
+                            .filter(Boolean)
+                            .join(", ")}
+                        </td>
+                        <td>{r.segments.length || ""}</td>
+                        <td>{r.interruptions || ""}</td>
+                        <td>
+                          {r.po.deleted_at ? (
+                            <span className="badge bad">Deleted</span>
+                          ) : r.running ? (
+                            <span className="badge warn">Running</span>
+                          ) : (
+                            <span className="badge ok">
+                              {formatDuration(r.totalMs)}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
           </div>
         )}
 
@@ -1475,78 +1672,6 @@ export default function DashboardPage() {
               </ChartBlock>
             </div>
 
-            <div className="panel">
-              <h2 className="section-title">Every purchase order record</h2>
-              <p className="chart-desc">
-                One row per order per station. An order appears twice if it was
-                handled at both ends of the line.
-              </p>
-              {filteredPos.length === 0 ? (
-                <div className="empty">
-                  No purchase order records match these filters.
-                </div>
-              ) : (
-                <div className="table-wrap scroll-y" style={{ maxHeight: 560 }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>PO</th>
-                        <th>Station</th>
-                        <th>Date</th>
-                        <th>Queue</th>
-                        <th>Process</th>
-                        <th>Total</th>
-                        <th>Labour</th>
-                        <th>Crew</th>
-                        <th>Sent back</th>
-                        <th>State</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredPos.map((r) => (
-                        <tr key={r.po.id}>
-                          <td>
-                            <button
-                              className="row-link mono"
-                              onClick={() => {
-                                setOpenPo(r.po.po_number);
-                                setTab("bypo");
-                              }}
-                            >
-                              {r.po.po_number}
-                            </button>
-                          </td>
-                          <td>{r.step?.step_name}</td>
-                          <td className="mono">{r.po.log_date}</td>
-                          <td>{formatDuration(r.queueMs)}</td>
-                          <td>{formatDuration(r.processMs)}</td>
-                          <td>
-                            <strong>{formatDuration(r.totalMs)}</strong>
-                          </td>
-                          <td>{formatDuration(r.labourMs)}</td>
-                          <td>
-                            {crewOf(r.segments)
-                              .map((id) => opNames.get(id))
-                              .filter(Boolean)
-                              .join(", ")}
-                          </td>
-                          <td>{r.interruptions || ""}</td>
-                          <td>
-                            {r.po.deleted_at ? (
-                              <span className="badge bad">Deleted</span>
-                            ) : r.running ? (
-                              <span className="badge warn">Running</span>
-                            ) : (
-                              <span className="badge ok">Done</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
           </div>
         )}
 
@@ -1560,8 +1685,10 @@ export default function DashboardPage() {
               status={st}
               operators={data?.operators ?? []}
               onClose={() => setOpenLot(null)}
+              onEdit={editLogRecord}
               onDelete={(id) => void softDeleteLog(id)}
               onRestore={(id) => void restoreLog(id)}
+              onAddStep={addSkippedStep}
             />
           );
         })()}
@@ -1574,11 +1701,24 @@ export default function DashboardPage() {
               status={st}
               operators={data?.operators ?? []}
               onClose={() => setOpenPo(null)}
+              onEdit={editPoRecord}
               onDelete={(id) => void softDeletePo(id)}
               onRestore={(id) => void restorePo(id)}
             />
           );
         })()}
+
+      {editing && (
+          <RecordEditor
+            target={editing}
+            operators={data?.operators ?? []}
+            onClose={() => setEditing(null)}
+            onSaved={async () => {
+              setEditing(null);
+              await load();
+            }}
+          />
+        )}
 
         <p className="hint" style={{ paddingBottom: 30 }}>
           Times are shown in Tucson local time. Working hours are{" "}

@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Plus,
   Cog,
   CornerUpLeft,
   Hourglass,
@@ -19,9 +20,9 @@ import type { Operator, Segment } from "@/lib/types";
 type Common = {
   operators: Operator[];
   onClose: () => void;
-  onEdit?: (logId: string) => void;
-  onDelete?: (logId: string) => void;
-  onRestore?: (logId: string) => void;
+  onEdit?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onRestore?: (id: string) => void;
 };
 
 function crewNames(s: Segment, ops: Operator[]): string {
@@ -164,7 +165,12 @@ export function LotDetail({
   onEdit,
   onDelete,
   onRestore,
-}: Common & { status: LotStatus }) {
+  onAddStep,
+}: Common & {
+  status: LotStatus;
+  /** Fill in a step the lot passed over. */
+  onAddStep?: (lot: string, stepName: string, pass: number) => void;
+}) {
   return (
     <div className="overlay" onClick={onClose}>
       <div
@@ -217,15 +223,35 @@ export function LotDetail({
         )}
 
         {status.skipped.length > 0 && (
-          <div className="lot-status repeat">
-            <SkipForward size={16} />
-            <span>
-              Passed over <strong>{status.skipped.join(", ")}</strong>. Worked out
-              from gaps in the route, so it may also mean a missed log rather
-              than a deliberate skip. The record before the gap shows who moved
-              it on.
-            </span>
-          </div>
+          <>
+            <div className="lot-status repeat">
+              <SkipForward size={16} />
+              <span>
+                Passed over <strong>{status.skipped.join(", ")}</strong>. Worked
+                out from gaps in the route, so it may also mean a missed log
+                rather than a deliberate skip. Add one below if it was worked but
+                never logged.
+              </span>
+            </div>
+            <div className="stack" style={{ gap: 6 }}>
+              {status.skipped.map((name) => (
+                <div className="skip-row" key={name}>
+                  <SkipForward size={15} color="#f0a92e" />
+                  <span className="s-name">{name}</span>
+                  <div className="spacer" />
+                  {onAddStep && (
+                    <button
+                      className="btn sm"
+                      onClick={() => onAddStep(status.lot, name, status.pass)}
+                    >
+                      <Plus size={14} />
+                      Add this step
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {status.interruptions > 0 && (
