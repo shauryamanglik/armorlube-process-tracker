@@ -358,6 +358,13 @@ export default function DashboardPage() {
     });
   }
 
+  /** Add a station an order was never logged at. */
+  function addPoStation(po: string, stepName: string) {
+    const step = (data?.steps ?? []).find((s) => s.step_name === stepName);
+    if (!step) return;
+    setEditing({ mode: "create", kind: "po", step, poNumber: po });
+  }
+
   /** Fill in a step a lot passed over. */
   function addSkippedStep(lot: string, stepName: string, pass: number) {
     const step = (data?.steps ?? []).find((s) => s.step_name === stepName);
@@ -1703,10 +1710,14 @@ export default function DashboardPage() {
             <PoDetail
               status={st}
               operators={data?.operators ?? []}
+              stations={(data?.steps ?? [])
+                .filter((x) => x.tracks_po && x.active !== false)
+                .sort((a, b) => a.sort_order - b.sort_order)}
               onClose={() => setOpenPo(null)}
               onEdit={editPoRecord}
               onDelete={(id) => void softDeletePo(id)}
               onRestore={(id) => void restorePo(id)}
+              onAddStation={addPoStation}
             />
           );
         })()}

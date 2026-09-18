@@ -65,6 +65,13 @@ export type EditorTarget =
       step: Step;
       lotId: string;
       passNo: number;
+    }
+  | {
+      /** Adding a station an order was never logged at. */
+      mode: "create";
+      kind: "po";
+      step: Step;
+      poNumber: string;
     };
 
 function toDraft(s: Segment): Draft {
@@ -195,7 +202,23 @@ export default function RecordEditor({
       let recordId: string;
       const parentCol = target.kind === "log" ? "log_id" : "po_log_id";
 
-      if (isCreate && target.kind === "log") {
+      if (isCreate && target.kind === "po") {
+        const { data, error: insErr } = await supabase
+          .from("po_logs")
+          .insert({
+            step_id: step.id,
+            po_number: target.poNumber,
+            log_date: logDate,
+            notes: notes || null,
+          })
+          .select()
+          .single();
+        if (insErr || !data) {
+          setError("Could not create that record.");
+          return;
+        }
+        recordId = data.id as string;
+      } else if (isCreate && target.kind === "log") {
         const { data, error: insErr } = await supabase
           .from("logs")
           .insert({
@@ -294,12 +317,8 @@ export default function RecordEditor({
     : `Edit ${step.step_name}`;
   const reference =
     target.kind === "log"
-      ? target.mode === "edit"
-        ? target.lotId
-        : target.lotId
-      : target.mode === "edit"
-      ? target.poNumber
-      : "";
+      ? target.lotId
+      : target.poNumber;
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -319,8 +338,9 @@ export default function RecordEditor({
           <div className="lot-status new">
             <TriangleAlert size={16} />
             <span>
-              This step was passed over. Adding it here fills the gap by hand, so
-              put in the times as they actually happened rather than now.
+              {target.kind === "po"
+                ? "This order was never logged at this station. Adding it here fills the gap by hand, so put in the times as they actually happened rather than now."
+                : "This step was passed over. Adding it here fills the gap by hand, so put in the times as they actually happened rather than now."}
             </span>
           </div>
         )}

@@ -42,7 +42,7 @@ import {
   type Action,
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
-import EditLogModal from "./EditLogModal";
+import RecordEditor, { type EditorTarget } from "./RecordEditor";
 import LotPicker, { type LotHere, type LotState } from "./LotPicker";
 import PhaseControls, { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
@@ -82,7 +82,7 @@ export default function StepPanel({
     null
   );
   const [routeBusy, setRouteBusy] = useState(false);
-  const [editing, setEditing] = useState<LogRow | null>(null);
+  const [editing, setEditing] = useState<EditorTarget | null>(null);
 
   const lotValid = LOT_PATTERN.test(lotId);
 
@@ -392,6 +392,22 @@ export default function StepPanel({
     }
   }
 
+  /** Open the full editor for a record, loading its stretches first. */
+  async function openEditor(l: LogRow) {
+    const segs = await loadSegments({ kind: "log", id: l.id });
+    setEditing({
+      mode: "edit",
+      kind: "log",
+      id: l.id,
+      step,
+      lotId: l.lot_id,
+      logDate: l.log_date,
+      blastType: l.blast_type,
+      notes: l.notes,
+      segments: segs,
+    });
+  }
+
   async function softDelete(l: LogRow) {
     if (
       !window.confirm(
@@ -694,7 +710,7 @@ export default function StepPanel({
                 <button
                   className="btn sm icon ghost"
                   aria-label={`Edit ${l.lot_id}`}
-                  onClick={() => setEditing(l)}
+                  onClick={() => void openEditor(l)}
                 >
                   <Pencil size={15} />
                 </button>
@@ -728,15 +744,13 @@ export default function StepPanel({
       )}
 
       {editing && (
-        <EditLogModal
-          log={editing}
-          step={step}
+        <RecordEditor
+          target={editing}
           operators={operators}
-          editorId={crew[0] ?? null}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
-            await Promise.all([loadRecent(), lookup()]);
+            await Promise.all([loadRecent(), lookup(), loadHere()]);
             onLotsChanged();
             onToast("Record updated.");
           }}

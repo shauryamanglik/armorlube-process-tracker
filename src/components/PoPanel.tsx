@@ -6,6 +6,7 @@ import {
   CirclePlus,
   FileText,
   Info,
+  Pencil,
   RotateCcw,
   Search,
   Trash2,
@@ -31,6 +32,7 @@ import {
   type Action,
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
+import RecordEditor, { type EditorTarget } from "./RecordEditor";
 import PhaseControls, { liveState } from "./PhaseControls";
 
 type Props = {
@@ -59,6 +61,7 @@ export default function PoPanel({
   const [record, setRecord] = useState<PoLog | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<EditorTarget | null>(null);
 
   const valid = LOT_PATTERN.test(poNumber);
 
@@ -217,6 +220,21 @@ export default function PoPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Open the full editor for a record, loading its stretches first. */
+  async function openEditor(r: PoLog) {
+    const segs = await loadSegments({ kind: "po", id: r.id });
+    setEditing({
+      mode: "edit",
+      kind: "po",
+      id: r.id,
+      step,
+      poNumber: r.po_number,
+      logDate: r.log_date,
+      notes: r.notes,
+      segments: segs,
+    });
   }
 
   async function removeRecord(r: PoLog) {
@@ -382,6 +400,19 @@ export default function PoPanel({
         </div>
       )}
 
+      {editing && (
+        <RecordEditor
+          target={editing}
+          operators={operators}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await Promise.all([loadRegistry(), lookup()]);
+            onToast("Record updated.");
+          }}
+        />
+      )}
+
       <div className="panel tight">
         <div className="row" style={{ marginBottom: 10 }}>
           <strong style={{ fontSize: 14 }}>Recent POs at this station</strong>
@@ -406,6 +437,13 @@ export default function PoPanel({
                     <span>{r.log_date}</span>
                     <span>{formatStamp(r.updated_at)}</span>
                   </div>
+                </button>
+                <button
+                  className="btn sm icon ghost"
+                  aria-label={`Edit ${r.po_number}`}
+                  onClick={() => void openEditor(r)}
+                >
+                  <Pencil size={15} />
                 </button>
                 <button
                   className="btn sm icon danger"

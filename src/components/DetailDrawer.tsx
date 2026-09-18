@@ -298,10 +298,22 @@ export function LotDetail({
 export function PoDetail({
   status,
   operators,
+  stations,
   onClose,
+  onEdit,
   onDelete,
   onRestore,
-}: Common & { status: PoStatus }) {
+  onAddStation,
+}: Common & {
+  status: PoStatus;
+  /** Every station that handles purchase orders, in order. */
+  stations?: { id: string; step_name: string }[];
+  /** Add a station this order was never logged at. */
+  onAddStation?: (po: string, stepName: string) => void;
+}) {
+  const seen = new Set(status.records.map((r) => r.step?.step_name));
+  const notLogged = (stations ?? []).filter((s) => !seen.has(s.step_name));
+
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
@@ -347,6 +359,16 @@ export function PoDetail({
           </div>
         )}
 
+        {status.skipped.length > 0 && (
+          <div className="lot-status repeat">
+            <SkipForward size={16} />
+            <span>
+              Reached a station without being logged at{" "}
+              <strong>{status.skipped.join(", ")}</strong> first.
+            </span>
+          </div>
+        )}
+
         <div className="divider" />
         <strong style={{ fontSize: 14 }}>Every station</strong>
 
@@ -361,10 +383,39 @@ export function PoDetail({
             warnings={poWarnings(r)}
             operators={operators}
             deleted={Boolean(r.po.deleted_at)}
+            onEdit={onEdit ? () => onEdit(r.po.id) : undefined}
             onDelete={onDelete ? () => onDelete(r.po.id) : undefined}
             onRestore={onRestore ? () => onRestore(r.po.id) : undefined}
           />
         ))}
+
+        {notLogged.length > 0 && (
+          <>
+            <div className="hint">
+              Not logged at{" "}
+              {notLogged.length === 1 ? "this station" : "these stations"} yet.
+              Add one only if the work happened but was never recorded.
+            </div>
+            <div className="stack" style={{ gap: 6 }}>
+              {notLogged.map((st) => (
+                <div className="skip-row" key={st.id}>
+                  <SkipForward size={15} color="#f0a92e" />
+                  <span className="s-name">{st.step_name}</span>
+                  <div className="spacer" />
+                  {onAddStation && (
+                    <button
+                      className="btn sm"
+                      onClick={() => onAddStation(status.po, st.step_name)}
+                    >
+                      <Plus size={14} />
+                      Add this station
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
