@@ -301,14 +301,14 @@ export default function DashboardPage() {
   const weekday = useMemo(() => byWeekday(filtered), [filtered]);
   const poStationRows = useMemo(() => poByStation(filteredPos), [filteredPos]);
   const poShares = useMemo(() => poWaitShare(filteredPos), [filteredPos]);
-  const poThroughput = useMemo(() => poThroughputByDay(filteredPos), [filteredPos]);
+  const poThroughput = useMemo(() => poThroughputByDay(filteredPos, data?.steps ?? []), [filteredPos, data]);
   const slowPos = useMemo(() => slowestPos(filteredPos), [filteredPos]);
 
   const statuses = useMemo(
     () => lotStatuses(filtered, data?.steps ?? []),
     [filtered, data]
   );
-  const poStatusRows = useMemo(() => poStatuses(filteredPos), [filteredPos]);
+  const poStatusRows = useMemo(() => poStatuses(filteredPos, data?.steps ?? []), [filteredPos, data]);
 
   const shownLots = useMemo(() => {
     if (lotView === "live") return statuses.filter((s) => s.live);
@@ -318,19 +318,13 @@ export default function DashboardPage() {
     return statuses;
   }, [statuses, lotView]);
 
-  /** Orders that only reached one of the two stations. */
-  const poStationCount = useMemo(
-    () => (data?.steps ?? []).filter((s) => s.tracks_po && s.active !== false).length,
-    [data]
-  );
-
   const shownPos = useMemo(() => {
     if (poView === "live") return poStatusRows.filter((p) => p.live);
     if (poView === "done") return poStatusRows.filter((p) => !p.live);
     if (poView === "partial")
-      return poStatusRows.filter((p) => p.records.length < poStationCount);
+      return poStatusRows.filter((p) => p.skipped.length > 0);
     return poStatusRows;
-  }, [poStatusRows, poView, poStationCount]);
+  }, [poStatusRows, poView]);
 
   /** Open the editor for an existing lot record. */
   function editLogRecord(logId: string) {
@@ -1223,7 +1217,7 @@ export default function DashboardPage() {
                   onClick={() => setPoView("done")}
                 >
                   <CircleCheck size={15} />
-                  Completed
+                  Shipped
                   <span className="badge">
                     {poStatusRows.filter((p) => !p.live).length}
                   </span>
@@ -1233,12 +1227,9 @@ export default function DashboardPage() {
                   onClick={() => setPoView("partial")}
                 >
                   <SkipForward size={15} />
-                  Missing a station
+                  Skipped a station
                   <span className="badge">
-                    {
-                      poStatusRows.filter((p) => p.records.length < poStationCount)
-                        .length
-                    }
+                    {poStatusRows.filter((p) => p.skipped.length > 0).length}
                   </span>
                 </button>
               </div>
@@ -1246,10 +1237,11 @@ export default function DashboardPage() {
             <p className="chart-desc">
               Every purchase order in range with where it is and what it is
               doing. Click a row for its full history, and to edit or delete the
-              records behind it. <strong>Missing a station</strong> means the
-              order was logged at one end of the line but not the other, which
-              is normal while it is still in progress and worth a look once it
-              is not.
+              records behind it. An order stays <strong>open</strong> until
+              Oil/Shipping records a process out, so one that has cleared
+              Incoming Inspection but not shipped is still in progress.{" "}
+              <strong>Skipped a station</strong> means it reached a later
+              station without ever being logged at an earlier one.
             </p>
             <div className="table-wrap scroll-y" style={{ maxHeight: 620 }}>
               <table>
@@ -1264,6 +1256,7 @@ export default function DashboardPage() {
                     <th>Total</th>
                     <th>Labour</th>
                     <th>Stations</th>
+                    <th>Skipped</th>
                     <th>Sent back</th>
                   </tr>
                 </thead>
@@ -1277,7 +1270,7 @@ export default function DashboardPage() {
                       <td>
                         <span className="row-link mono">{p.po}</span>
                       </td>
-                      <td>{p.live ? p.station : "Finished"}</td>
+                      <td>{p.live ? p.station : "Shipped"}</td>
                       <td>
                         <span
                           className={`state-pill ${
@@ -1301,6 +1294,15 @@ export default function DashboardPage() {
                       </td>
                       <td>{formatDuration(p.labourMs)}</td>
                       <td>{p.records.length}</td>
+                      <td>
+                        {p.skipped.length > 0 ? (
+                          <span className="badge warn">
+                            {p.skipped.join(", ")}
+                          </span>
+                        ) : (
+                          ""
+                        )}
+                      </td>
                       <td>{p.interruptions || ""}</td>
                     </tr>
                   ))}
@@ -1651,21 +1653,22 @@ export default function DashboardPage() {
               </ChartBlock>
 
               <ChartBlock
-                title="Orders closed per day"
+                title="Orders shipped per day"
                 description={
                   <>
-                    Orders whose intervals all finished on that day, with none
-                    left running. This is purchase order throughput, the
-                    equivalent of lots finished per day on the lots tab.
+                    Counted on the day <strong>Oil/Shipping</strong> recorded
+                    its process out, because that is what finishes an order. One
+                    that cleared Incoming Inspection but has not shipped is not
+                    counted here.
                   </>
                 }
                 rows={poThroughput}
-                columns={["Orders closed"]}
+                columns={["Orders shipped"]}
                 unit="count"
               >
                 <DayBars
                   data={poThroughput}
-                  series={["Orders closed"]}
+                  series={["Orders shipped"]}
                   unit=""
                   height={360}
                 />

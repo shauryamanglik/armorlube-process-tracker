@@ -18,24 +18,24 @@ import type { DayRow } from "@/lib/analytics";
 import { formatDuration } from "@/lib/time";
 
 const AXIS = {
-  stroke: "#7b8796",
+  stroke: "#82828a",
   fontSize: 11.5,
   fontFamily: "var(--font-sans)",
 };
-const GRID = "#222b35";
+const GRID = "#242426";
 const TOOLTIP = {
-  background: "#1b222b",
-  border: "1px solid #39434f",
+  background: "#1c1c1e",
+  border: "1px solid #3d3d41",
   borderRadius: 10,
   fontSize: 13,
   color: "#e9eef4",
   padding: "10px 12px",
   boxShadow: "0 8px 26px rgba(0,0,0,0.45)",
 };
-const TOOLTIP_LABEL = { color: "#9aa8b8", marginBottom: 6, fontWeight: 600 };
+const TOOLTIP_LABEL = { color: "#a0a0a6", marginBottom: 6, fontWeight: 600 };
 const LEGEND = {
   fontSize: 12,
-  color: "#9aa8b8",
+  color: "#a0a0a6",
   paddingTop: 10,
 };
 /** Axis lines add noise without adding information, so they are dropped. */
@@ -174,7 +174,7 @@ export function DayLines({
         <Tooltip
           contentStyle={TOOLTIP}
           labelStyle={TOOLTIP_LABEL}
-          cursor={{ stroke: "#3a4552", strokeWidth: 1 }}
+          cursor={{ stroke: "#44444a", strokeWidth: 1 }}
           formatter={(v: unknown, n: unknown) =>
             unit === "h" ? [hoursTip(v), String(n)] : [String(v), String(n)]
           }
@@ -188,7 +188,7 @@ export function DayLines({
             stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
             strokeWidth={2.2}
             dot={{ r: 2.5, strokeWidth: 0 }}
-            activeDot={{ r: 5, strokeWidth: 2, stroke: "#11151a" }}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: "#0e0e0f" }}
             connectNulls
           />
         ))}
@@ -295,7 +295,7 @@ export function PairBars({
         <CartesianGrid stroke="#222b35" vertical={false} strokeDasharray="2 5" />
         <XAxis
           dataKey="date"
-          tick={{ stroke: "#7b8796", fontSize: 11.5 }}
+          tick={{ stroke: "#82828a", fontSize: 11.5 }}
           axisLine={false}
           tickLine={false}
           tickMargin={9}
@@ -305,7 +305,7 @@ export function PairBars({
           interval={0}
         />
         <YAxis
-          tick={{ stroke: "#7b8796", fontSize: 11.5 }}
+          tick={{ stroke: "#82828a", fontSize: 11.5 }}
           axisLine={false}
           tickLine={false}
           tickMargin={9}
@@ -314,21 +314,21 @@ export function PairBars({
         />
         <Tooltip
           contentStyle={{
-            background: "#1b222b",
-            border: "1px solid #39434f",
+            background: "#1c1c1e",
+            border: "1px solid #3d3d41",
             borderRadius: 10,
             fontSize: 13,
             color: "#e9eef4",
             padding: "10px 12px",
           }}
-          labelStyle={{ color: "#9aa8b8", marginBottom: 6, fontWeight: 600 }}
+          labelStyle={{ color: "#a0a0a6", marginBottom: 6, fontWeight: 600 }}
           cursor={{ fill: "rgba(255,255,255,0.03)" }}
           formatter={(v: unknown, n: unknown) =>
             unit === "h" ? [hoursTip(v), String(n)] : [`${v}${unit}`, String(n)]
           }
         />
         <Legend
-          wrapperStyle={{ fontSize: 12, color: "#9aa8b8", paddingTop: 10 }}
+          wrapperStyle={{ fontSize: 12, color: "#a0a0a6", paddingTop: 10 }}
           iconType="circle"
           iconSize={8}
         />

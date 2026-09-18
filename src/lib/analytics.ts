@@ -1,4 +1,4 @@
-import { measureSpan, spanValue, toHours, type Span } from "./time";
+import { isoToPhoenixDate, measureSpan, spanValue, toHours, type Span } from "./time";
 import { byParent, crewOf, interruptions, rollup } from "./segments";
 import type { LogRow, PoLog, Segment, Step, WorkRules } from "./types";
 
@@ -721,19 +721,34 @@ export function byWeekday(rows: Enriched[]): DayRow[] {
     }));
 }
 
-/** Purchase orders finished per day. */
-export function poThroughputByDay(rows: EnrichedPo[]): DayRow[] {
+/**
+ * Orders shipped per day, counted on the day the final station finished.
+ * An order that cleared incoming but has not shipped is not counted.
+ */
+export function poThroughputByDay(
+  rows: EnrichedPo[],
+  steps: Step[]
+): DayRow[] {
+  const stations = poStations(steps);
+  const last = stations[stations.length - 1];
+  if (!last) return [];
+
   const days = new Map<string, Set<string>>();
   for (const r of rows) {
-    if (r.running) continue;
-    if (r.totalMs <= 0) continue;
-    const set = days.get(r.po.log_date) ?? new Set<string>();
+    if (r.step?.id !== last.id) continue;
+    const closed = r.segments
+      .filter((sg) => sg.kind === "process" && sg.ended_at)
+      .sort((a, b) => (b.ended_at ?? "").localeCompare(a.ended_at ?? ""))[0];
+    if (!closed || r.running) continue;
+    const day = isoToPhoenixDate(closed.ended_at!);
+    const set = days.get(day) ?? new Set<string>();
     set.add(r.po.po_number);
-    days.set(r.po.log_date, set);
+    days.set(day, set);
   }
+
   return Array.from(days.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, set]) => ({ date, "Orders closed": set.size }));
+    .map(([date, set]) => ({ date, "Orders shipped": set.size }));
 }
 
 /** Waiting against working per purchase order station. */
@@ -892,10 +907,20 @@ export function lotStatuses(rows: Enriched[], steps: Step[]): LotStatus[] {
 
 export type PoStatus = {
   po: string;
+  /** Still on the books. Only a closed process at the last station ends it. */
   live: boolean;
   station: string;
-  state: "In queue" | "In process" | "Waiting" | "Finished";
+  state:
+    | "In queue"
+    | "In process"
+    | "Awaiting next station"
+    | "Not started"
+    | "Completed";
   since: string | null;
+  /** Stations the order was never logged at, before one it reached. */
+  skipped: string[];
+  /** True once the final station has a closed process stretch. */
+  shipped: boolean;
   queueMs: number;
   processMs: number;
   totalMs: number;
@@ -904,7 +929,22 @@ export type PoStatus = {
   records: EnrichedPo[];
 };
 
-export function poStatuses(rows: EnrichedPo[]): PoStatus[] {
+/** The stations an order passes through, in order. */
+export function poStations(steps: Step[]): Step[] {
+  return steps
+    .filter((s) => s.active !== false && s.tracks_po)
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/**
+ * An order is not finished when the paperwork at incoming is done. It runs
+ * until the last station, oil and shipping, records a process out. Anything
+ * before that is still in progress, even when no timer happens to be running.
+ */
+export function poStatuses(rows: EnrichedPo[], steps: Step[]): PoStatus[] {
+  const stations = poStations(steps);
+  const lastStation = stations[stations.length - 1];
+
   const byPo = new Map<string, EnrichedPo[]>();
   for (const r of rows) {
     const list = byPo.get(r.po.po_number) ?? [];
@@ -914,25 +954,48 @@ export function poStatuses(rows: EnrichedPo[]): PoStatus[] {
 
   return Array.from(byPo.entries())
     .map(([po, list]) => {
-      const current = [...list].sort(
-        (a, b) => (b.step?.sort_order ?? 0) - (a.step?.sort_order ?? 0)
-      )[0];
-      const segs = current?.segments ?? [];
-      const openQueue = segs.find((s) => s.kind === "queue" && !s.ended_at);
-      const openProcess = segs.find((s) => s.kind === "process" && !s.ended_at);
-      const running = list.some((r) => r.running);
+      const ordered = [...list].sort(
+        (a, b) => (a.step?.sort_order ?? 0) - (b.step?.sort_order ?? 0)
+      );
+      const current = ordered[ordered.length - 1];
 
-      const state: PoStatus["state"] = openProcess
-          ? "In process"
+      // Shipped means the final station finished its work.
+      const atLast = lastStation
+        ? ordered.find((r) => r.step?.id === lastStation.id)
+        : undefined;
+      const shipped = Boolean(
+        atLast?.segments.some((sg) => sg.kind === "process" && sg.ended_at) &&
+          !atLast?.running
+      );
+
+      const openQueue = current?.segments.find(
+        (sg) => sg.kind === "queue" && !sg.ended_at
+      );
+      const openProcess = current?.segments.find(
+        (sg) => sg.kind === "process" && !sg.ended_at
+      );
+
+      const state: PoStatus["state"] = shipped
+        ? "Completed"
+        : openProcess
+        ? "In process"
         : openQueue
         ? "In queue"
-        : running
-        ? "Waiting"
-        : "Finished";
+        : ordered.some((r) => r.segments.length > 0)
+        ? "Awaiting next station"
+        : "Not started";
+
+      const touched = new Set(
+        ordered.map((r) => r.step?.sort_order).filter(Boolean) as number[]
+      );
+      const highest = Math.max(...Array.from(touched), 0);
+      const skipped = stations
+        .filter((st) => st.sort_order < highest && !touched.has(st.sort_order))
+        .map((st) => st.step_name);
 
       return {
         po,
-        live: running,
+        live: !shipped,
         station: current?.step?.step_name ?? "Unknown",
         state,
         since:
@@ -940,12 +1003,14 @@ export function poStatuses(rows: EnrichedPo[]): PoStatus[] {
           openQueue?.started_at ??
           current?.po.updated_at ??
           null,
+        skipped,
+        shipped,
         queueMs: list.reduce((a, r) => a + r.queueMs, 0),
         processMs: list.reduce((a, r) => a + r.processMs, 0),
         totalMs: list.reduce((a, r) => a + r.totalMs, 0),
         labourMs: list.reduce((a, r) => a + r.labourMs, 0),
         interruptions: list.reduce((a, r) => a + r.interruptions, 0),
-        records: list,
+        records: ordered,
       };
     })
     .sort((a, b) => a.po.localeCompare(b.po));

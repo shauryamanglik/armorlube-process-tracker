@@ -16,12 +16,12 @@ import {
 import type { Bucket, TrendPoint } from "@/lib/analytics";
 import { formatDuration, toHours } from "@/lib/time";
 
-const AXIS = { stroke: "#6b7886", fontSize: 11 };
-const GRID = "#252e39";
+const AXIS = { stroke: "#82828a", fontSize: 11 };
+const GRID = "#242426";
 
 const TOOLTIP_STYLE = {
-  background: "#212934",
-  border: "1px solid #313c4a",
+  background: "#1c1c1e",
+  border: "1px solid #3d3d41",
   borderRadius: 10,
   fontSize: 13,
   color: "#e9eef4",
@@ -101,7 +101,7 @@ export function SplitBars({ buckets }: { buckets: Bucket[] }) {
           cursor={{ fill: "rgba(255,255,255,0.04)" }}
           formatter={(v: unknown, n: unknown) => [hoursTip(v), String(n)]}
         />
-        <Legend wrapperStyle={{ fontSize: 12, color: "#9aa8b8" }} />
+        <Legend wrapperStyle={{ fontSize: 12, color: "#a0a0a6" }} />
         <Bar dataKey="Queue" stackId="a" fill="#f0a92e" />
         <Bar dataKey="Process" stackId="a" fill="#2fbf71" radius={[5, 5, 0, 0]} />
       </BarChart>
@@ -161,7 +161,7 @@ export function Trend({ points }: { points: TrendPoint[] }) {
           contentStyle={TOOLTIP_STYLE}
           formatter={(v: unknown, n: unknown) => [hoursTip(v), String(n)]}
         />
-        <Legend wrapperStyle={{ fontSize: 12, color: "#9aa8b8" }} />
+        <Legend wrapperStyle={{ fontSize: 12, color: "#a0a0a6" }} />
         <Line
           type="monotone"
           dataKey="Queue"

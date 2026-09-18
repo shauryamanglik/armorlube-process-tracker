@@ -1,13 +1,13 @@
 :root {
-  --bg: #11151a;
-  --surface: #191f27;
-  --surface-2: #212934;
-  --surface-3: #2a3441;
-  --line: #313c4a;
-  --line-soft: #252e39;
-  --text: #e9eef4;
-  --text-dim: #9aa8b8;
-  --text-faint: #6b7886;
+  --bg: #0e0e0f;
+  --surface: #171718;
+  --surface-2: #1f1f21;
+  --surface-3: #2a2a2d;
+  --line: #3a3a3e;
+  --line-soft: #272729;
+  --text: #ededee;
+  --text-dim: #a0a0a6;
+  --text-faint: #75757b;
 
   --run: #2fbf71;
   --run-deep: #1d7a48;
@@ -43,10 +43,11 @@ body {
 
 body {
   min-height: 100dvh;
+  /* A neutral lift at the top, no colour cast. */
   background-image: radial-gradient(
     120% 80% at 50% 0%,
-    #1a222c 0%,
-    var(--bg) 60%
+    #1b1b1d 0%,
+    var(--bg) 62%
   );
   background-attachment: fixed;
 }
@@ -90,7 +91,7 @@ button {
   gap: 14px;
   padding: 14px var(--pad);
   border-bottom: 1px solid var(--line-soft);
-  background: rgba(17, 21, 26, 0.92);
+  background: rgba(14, 14, 15, 0.92);
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;
@@ -545,7 +546,7 @@ button {
 
 /* out of sequence, second tap required */
 .tbtn.armed {
-  background: #33270f;
+  background: rgba(240, 169, 46, 0.14);
   border-color: var(--hold);
   color: var(--hold);
 }
@@ -607,26 +608,26 @@ button {
 }
 
 .badge.warn {
-  border-color: #6b4d15;
-  background: #2a2113;
+  border-color: rgba(240, 169, 46, 0.38);
+  background: rgba(240, 169, 46, 0.1);
   color: var(--hold);
 }
 
 .badge.ok {
-  border-color: var(--run-deep);
-  background: #13251c;
+  border-color: rgba(47, 191, 113, 0.34);
+  background: rgba(47, 191, 113, 0.1);
   color: var(--run);
 }
 
 .badge.bad {
-  border-color: var(--stop-deep);
-  background: #2a1517;
+  border-color: rgba(229, 72, 77, 0.36);
+  background: rgba(229, 72, 77, 0.1);
   color: #ff9a9d;
 }
 
 .badge.info {
-  border-color: #244a86;
-  background: #131f31;
+  border-color: rgba(76, 141, 246, 0.38);
+  background: rgba(76, 141, 246, 0.1);
   color: #8ab4ff;
 }
 
@@ -673,7 +674,7 @@ button {
 }
 
 .step-btn[aria-pressed="true"] {
-  background: #14283f;
+  background: rgba(76, 141, 246, 0.09);
   box-shadow: inset 3px 0 0 var(--info);
 }
 
@@ -772,7 +773,7 @@ tbody tr:last-child td {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(6, 9, 13, 0.76);
+  background: rgba(5, 5, 6, 0.78);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -917,7 +918,7 @@ tbody tr:last-child td {
 
 .lot-row[aria-pressed="true"] {
   border-color: var(--info);
-  background: #14243c;
+  background: rgba(76, 141, 246, 0.1);
 }
 
 .lot-row .lid {
@@ -947,20 +948,20 @@ tbody tr:last-child td {
 }
 
 .lot-status.new {
-  border-color: #244a86;
-  background: #121d2e;
+  border-color: rgba(76, 141, 246, 0.42);
+  background: rgba(76, 141, 246, 0.08);
   color: #9cc0ff;
 }
 
 .lot-status.known {
   border-color: var(--run-deep);
-  background: #12231b;
+  background: rgba(47, 191, 113, 0.08);
   color: #7fdda8;
 }
 
 .lot-status.repeat {
-  border-color: #6b4d15;
-  background: #271f12;
+  border-color: rgba(240, 169, 46, 0.4);
+  background: rgba(240, 169, 46, 0.07);
   color: var(--hold);
 }
 
@@ -1035,7 +1036,7 @@ tbody tr:last-child td {
 
 .route-row[aria-pressed="true"] {
   border-color: var(--info);
-  background: #14243c;
+  background: rgba(76, 141, 246, 0.1);
 }
 
 .route-row .r-order {
@@ -1190,7 +1191,7 @@ tbody tr:last-child td {
 }
 
 .abtn.armed {
-  background: #33270f;
+  background: rgba(240, 169, 46, 0.14);
   border-color: var(--hold);
 }
 
