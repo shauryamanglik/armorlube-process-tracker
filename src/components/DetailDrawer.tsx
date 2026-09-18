@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   AlertTriangle,
   Plus,
@@ -161,6 +162,7 @@ function RecordCard({
 export function LotDetail({
   status,
   operators,
+  steps,
   onClose,
   onEdit,
   onDelete,
@@ -168,9 +170,13 @@ export function LotDetail({
   onAddStep,
 }: Common & {
   status: LotStatus;
-  /** Fill in a step the lot passed over. */
+  /** Every step a lot can be recorded at. */
+  steps?: { id: string; step_name: string }[];
+  /** Fill in a step the lot passed over, or add one anywhere. */
   onAddStep?: (lot: string, stepName: string, pass: number) => void;
 }) {
+  const [addStep, setAddStep] = useState("");
+
   return (
     <div className="overlay" onClick={onClose}>
       <div
@@ -289,6 +295,45 @@ export function LotDetail({
             }
           />
         ))}
+
+        {onAddStep && steps && steps.length > 0 && (
+          <div className="add-anywhere">
+            <span className="field-label" style={{ margin: 0 }}>
+              <Plus size={14} />
+              Add a record at any step
+            </span>
+            <p className="hint" style={{ margin: "4px 0 10px" }}>
+              For work that happened but was never logged, or a second visit to
+              a step. Put in the times as they actually happened.
+            </p>
+            <div className="row">
+              <select
+                className="select"
+                style={{ flex: 1 }}
+                value={addStep}
+                onChange={(e) => setAddStep(e.target.value)}
+              >
+                <option value="">Choose a step</option>
+                {steps.map((st) => (
+                  <option key={st.id} value={st.step_name}>
+                    {st.step_name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn primary"
+                disabled={!addStep}
+                onClick={() => {
+                  onAddStep(status.lot, addStep, status.pass);
+                  setAddStep("");
+                }}
+              >
+                <Plus size={16} />
+                Add record
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -311,6 +356,7 @@ export function PoDetail({
   /** Add a station this order was never logged at. */
   onAddStation?: (po: string, stepName: string) => void;
 }) {
+  const [addStation, setAddStation] = useState("");
   const seen = new Set(status.records.map((r) => r.step?.step_name));
   const notLogged = (stations ?? []).filter((s) => !seen.has(s.step_name));
 
@@ -388,6 +434,44 @@ export function PoDetail({
             onRestore={onRestore ? () => onRestore(r.po.id) : undefined}
           />
         ))}
+
+        {onAddStation && stations && stations.length > 0 && (
+          <div className="add-anywhere">
+            <span className="field-label" style={{ margin: 0 }}>
+              <Plus size={14} />
+              Add a record at any station
+            </span>
+            <p className="hint" style={{ margin: "4px 0 10px" }}>
+              For work that happened but was never logged, or a second visit.
+            </p>
+            <div className="row">
+              <select
+                className="select"
+                style={{ flex: 1 }}
+                value={addStation}
+                onChange={(e) => setAddStation(e.target.value)}
+              >
+                <option value="">Choose a station</option>
+                {stations.map((st) => (
+                  <option key={st.id} value={st.step_name}>
+                    {st.step_name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn primary"
+                disabled={!addStation}
+                onClick={() => {
+                  onAddStation(status.po, addStation);
+                  setAddStation("");
+                }}
+              >
+                <Plus size={16} />
+                Add record
+              </button>
+            </div>
+          </div>
+        )}
 
         {notLogged.length > 0 && (
           <>

@@ -116,6 +116,13 @@ export type PoRegistryRow = {
   seen_at_incoming: boolean;
   seen_at_final: boolean;
   last_step: string;
+  /** Every station this order has a record at. */
+  seen_at: string[];
+  /** Stations where the work has finished. */
+  finished_at: string[];
+  /** How far down the line the finished work reaches. */
+  furthest_finished: number;
+  any_running: boolean;
 };
 
 export type HistoryRow = {

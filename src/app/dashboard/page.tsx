@@ -1695,6 +1695,9 @@ export default function DashboardPage() {
               status={st}
               operators={data?.operators ?? []}
               onClose={() => setOpenLot(null)}
+              steps={(data?.steps ?? [])
+                .filter((x) => x.tracks_lots !== false && x.active !== false)
+                .sort((a, b) => a.sort_order - b.sort_order)}
               onEdit={editLogRecord}
               onDelete={(id) => void softDeleteLog(id)}
               onRestore={(id) => void restoreLog(id)}
