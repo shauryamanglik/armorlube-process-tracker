@@ -4,13 +4,17 @@ import { useMemo, useState } from "react";
 import {
   CircleCheck,
   CirclePlus,
+  Cog,
+  Hourglass,
   Info,
+  MapPin,
   PackageSearch,
   Search,
   TriangleAlert,
 } from "lucide-react";
-import type { ActiveLot } from "@/lib/types";
-import { LOT_HINT, LOT_PATTERN, normalizeLot } from "@/lib/types";
+import type { ActiveLot, Segment } from "@/lib/types";
+import { LOT_HINT, LOT_PATTERN } from "@/lib/types";
+import { formatStamp } from "@/lib/time";
 
 export type LotState =
   | { kind: "empty" }
@@ -19,12 +23,22 @@ export type LotState =
   | { kind: "known"; lot: ActiveLot }
   | { kind: "repeat"; lot?: ActiveLot; detail: string };
 
+/** Where a lot is and what it is doing, for the picker rows. */
+export type LotHere = {
+  lot_id: string;
+  label: string;
+  tone: "queue" | "process" | "idle" | "done";
+  since: string | null;
+};
+
 type Props = {
   value: string;
   onChange: (v: string) => void;
   lots: ActiveLot[];
+  /** Lots with a record at this station, with their current state. */
+  here: LotHere[];
+  stepName: string;
   state: LotState;
-  /** True at the first step of the line, where new lots normally start. */
   entryStep: boolean;
 };
 
@@ -32,19 +46,54 @@ export default function LotPicker({
   value,
   onChange,
   lots,
+  here,
+  stepName,
   state,
   entryStep,
 }: Props) {
-  const [mode, setMode] = useState<"pick" | "type">(
-    entryStep ? "type" : "pick"
+  // Default to what is sitting at this station, because that is what the
+  // operator is almost always looking for.
+  const [scope, setScope] = useState<"here" | "all" | "type">(
+    entryStep ? "type" : "here"
   );
   const [search, setSearch] = useState("");
 
+  const hereMap = useMemo(
+    () => new Map(here.map((h) => [h.lot_id, h])),
+    [here]
+  );
+
   const shown = useMemo(() => {
-    const q = search.trim();
-    const list = q ? lots.filter((l) => l.lot_id.includes(q)) : lots;
-    return list.slice(0, 60);
-  }, [lots, search]);
+    const q = search.trim().toUpperCase();
+    if (scope === "here") {
+      return here
+        .filter((h) => !q || h.lot_id.includes(q))
+        .map((h) => ({
+          lot_id: h.lot_id,
+          here: h,
+          info: lots.find((l) => l.lot_id === h.lot_id),
+        }))
+        .sort((a, b) => (b.here.since ?? "").localeCompare(a.here.since ?? ""))
+        .slice(0, 60);
+    }
+    return lots
+      .filter((l) => !q || l.lot_id.includes(q))
+      .map((l) => ({
+        lot_id: l.lot_id,
+        here: hereMap.get(l.lot_id),
+        info: l,
+      }))
+      .slice(0, 60);
+  }, [scope, search, here, lots, hereMap]);
+
+  const toneIcon = (tone?: string) =>
+    tone === "process" ? (
+      <Cog size={12} />
+    ) : tone === "queue" ? (
+      <Hourglass size={12} />
+    ) : (
+      <MapPin size={12} />
+    );
 
   return (
     <div className="stack" style={{ gap: 10 }}>
@@ -55,23 +104,27 @@ export default function LotPicker({
         </span>
         <div className="spacer" />
         <div className="seg">
-          <button aria-pressed={mode === "pick"} onClick={() => setMode("pick")}>
-            <Search size={15} />
-            On the line
-            {lots.length > 0 && (
-              <span className="badge" style={{ padding: "1px 7px" }}>
-                {lots.length}
-              </span>
-            )}
+          <button aria-pressed={scope === "here"} onClick={() => setScope("here")}>
+            At this step
+            <span className="badge" style={{ padding: "1px 7px" }}>
+              {here.length}
+            </span>
           </button>
-          <button aria-pressed={mode === "type"} onClick={() => setMode("type")}>
+          <button aria-pressed={scope === "all"} onClick={() => setScope("all")}>
+            <Search size={15} />
+            All on the line
+            <span className="badge" style={{ padding: "1px 7px" }}>
+              {lots.length}
+            </span>
+          </button>
+          <button aria-pressed={scope === "type"} onClick={() => setScope("type")}>
             <CirclePlus size={15} />
             Type it
           </button>
         </div>
       </div>
 
-      {mode === "type" ? (
+      {scope === "type" ? (
         <input
           className={`input big mono ${
             state.kind === "invalid" ? "invalid" : ""
@@ -81,43 +134,55 @@ export default function LotPicker({
           spellCheck={false}
           placeholder="Lot number"
           value={value}
-          onChange={(e) => onChange(normalizeLot(e.target.value))}
+          onChange={(e) => onChange(e.target.value)}
         />
       ) : (
         <>
           <input
             className="input mono"
             placeholder="Filter lots"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
             value={search}
             onChange={(e) => setSearch(e.target.value.toUpperCase())}
           />
           {shown.length === 0 ? (
             <div className="empty" style={{ padding: 22 }}>
-              {lots.length === 0
+              {scope === "here"
+                ? `No lot is at ${stepName} right now. Switch to All on the line, or type one.`
+                : lots.length === 0
                 ? "No lots on the line yet. Use Type it to start one."
                 : "No lot matches that filter."}
             </div>
           ) : (
             <div className="lot-list">
-              {shown.map((l) => (
+              {shown.map((row) => (
                 <button
-                  key={l.lot_id}
+                  key={row.lot_id}
                   className="lot-row"
-                  aria-pressed={value === l.lot_id}
-                  onClick={() => onChange(l.lot_id)}
+                  aria-pressed={value === row.lot_id}
+                  onClick={() => onChange(row.lot_id)}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="lid mono">{l.lot_id}</div>
+                    <div className="lid mono">{row.lot_id}</div>
                     <div className="where">
-                      Last at {l.last_step}, {l.last_area}
+                      {row.here
+                        ? row.here.since
+                          ? `${row.here.label} since ${formatStamp(row.here.since)}`
+                          : row.here.label
+                        : row.info
+                        ? `Last at ${row.info.last_step}, ${row.info.last_area}`
+                        : ""}
                     </div>
                   </div>
-                  <span className="badge">
-                    {l.step_count} {l.step_count === 1 ? "step" : "steps"}
-                  </span>
+                  {row.here ? (
+                    <span className={`state-pill ${row.here.tone}`}>
+                      {toneIcon(row.here.tone)}
+                      {row.here.label}
+                    </span>
+                  ) : (
+                    <span className="badge">
+                      {row.info?.last_step ?? "Elsewhere"}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -125,9 +190,7 @@ export default function LotPicker({
         </>
       )}
 
-      {state.kind === "invalid" && (
-        <div className="err">{LOT_HINT}</div>
-      )}
+      {state.kind === "invalid" && <div className="err">{LOT_HINT}</div>}
 
       {state.kind === "new" && LOT_PATTERN.test(value) && (
         <div className="lot-status new">
@@ -144,8 +207,8 @@ export default function LotPicker({
         <div className="lot-status known">
           <CircleCheck size={16} />
           <span>
-            Existing lot, last seen at {state.lot.last_step}. Logging here adds to
-            the same lot.
+            Existing lot, last seen at {state.lot.last_step}. Logging here adds
+            to the same lot.
           </span>
         </div>
       )}

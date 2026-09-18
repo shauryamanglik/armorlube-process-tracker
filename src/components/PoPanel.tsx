@@ -31,7 +31,7 @@ import {
   type Action,
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
-import PhaseControls from "./PhaseControls";
+import PhaseControls, { liveState } from "./PhaseControls";
 
 type Props = {
   step: Step;
@@ -48,9 +48,11 @@ export default function PoPanel({
 }: Props) {
   const [crew, setCrew] = useState<string[]>([]);
   const [poNumber, setPoNumber] = useState("");
-  const [mode, setMode] = useState<"pick" | "type">("pick");
+  const [scope, setScope] = useState<"here" | "all" | "type">("here");
+  const [hereStates, setHereStates] = useState<
+    Map<string, { label: string; tone: string; since: string | null }>
+  >(new Map());
   const [search, setSearch] = useState("");
-  const [linked, setLinked] = useState(true);
 
   const [registry, setRegistry] = useState<PoRegistryRow[]>([]);
   const [here, setHere] = useState<PoLog[]>([]);
@@ -75,7 +77,37 @@ export default function PoPanel({
         .limit(40),
     ]);
     if (reg.data) setRegistry(reg.data as PoRegistryRow[]);
-    if (mine.data) setHere(mine.data as PoLog[]);
+    const rows = (mine.data ?? []) as PoLog[];
+    setHere(rows);
+
+    // Work out what each order at this station is currently doing.
+    if (rows.length) {
+      const { data: segs } = await supabase
+        .from("segments")
+        .select("*")
+        .in(
+          "po_log_id",
+          rows.map((r) => r.id)
+        );
+      const byPo = new Map<string, Segment[]>();
+      for (const sg of (segs ?? []) as Segment[]) {
+        if (!sg.po_log_id) continue;
+        const list = byPo.get(sg.po_log_id) ?? [];
+        list.push(sg);
+        byPo.set(sg.po_log_id, list);
+      }
+      const states = new Map<
+        string,
+        { label: string; tone: string; since: string | null }
+      >();
+      for (const r of rows) {
+        if (states.has(r.po_number)) continue;
+        states.set(r.po_number, liveState(byPo.get(r.id) ?? []));
+      }
+      setHereStates(states);
+    } else {
+      setHereStates(new Map());
+    }
   }, [step.id]);
 
   useEffect(() => {
@@ -108,16 +140,33 @@ export default function PoPanel({
     return () => clearTimeout(t);
   }, [lookup]);
 
-  /** Open POs at this station float to the top, then everything else. */
+  /**
+   * Orders at this station by default, because that is what the person
+   * standing here is working on. Everything ever seen is one tap away.
+   */
   const listed = useMemo(() => {
-    const openHere = new Set(here.map((h) => h.po_number));
     const q = search.trim().toUpperCase();
-    const rows = registry.filter((r) => !q || r.po_number.includes(q));
-    return rows
-      .map((r) => ({ ...r, openHere: openHere.has(r.po_number) }))
+    const atStation = new Set(
+      here
+        .filter((h) => hereStates.get(h.po_number)?.tone !== "done")
+        .map((h) => h.po_number)
+    );
+
+    const source =
+      scope === "here"
+        ? registry.filter((r) => atStation.has(r.po_number))
+        : registry;
+
+    return source
+      .filter((r) => !q || r.po_number.includes(q))
+      .map((r) => ({
+        ...r,
+        openHere: atStation.has(r.po_number),
+        state: hereStates.get(r.po_number),
+      }))
       .sort((a, b) => Number(b.openHere) - Number(a.openHere))
       .slice(0, 60);
-  }, [registry, here, search]);
+  }, [registry, here, hereStates, search, scope]);
 
   async function press(action: Action) {
     if (busy) return;
@@ -153,7 +202,7 @@ export default function PoPanel({
         setRecord(target);
       }
 
-      const plan = planAction(segments, action, linked, step);
+      const plan = planAction(segments, action, true, step);
       const ts = new Date().toISOString();
       const res = await applyPlan(plan, { kind: "po", id: target.id }, ts, crew);
 
@@ -211,23 +260,31 @@ export default function PoPanel({
           </span>
           <div className="spacer" />
           <div className="seg">
-            <button aria-pressed={mode === "pick"} onClick={() => setMode("pick")}>
-              <Search size={15} />
-              Known POs
-              {registry.length > 0 && (
-                <span className="badge" style={{ padding: "1px 7px" }}>
-                  {registry.length}
-                </span>
-              )}
+            <button aria-pressed={scope === "here"} onClick={() => setScope("here")}>
+              At this station
+              <span className="badge" style={{ padding: "1px 7px" }}>
+                {
+                  here.filter(
+                    (h) => hereStates.get(h.po_number)?.tone !== "done"
+                  ).length
+                }
+              </span>
             </button>
-            <button aria-pressed={mode === "type"} onClick={() => setMode("type")}>
+            <button aria-pressed={scope === "all"} onClick={() => setScope("all")}>
+              <Search size={15} />
+              All known
+              <span className="badge" style={{ padding: "1px 7px" }}>
+                {registry.length}
+              </span>
+            </button>
+            <button aria-pressed={scope === "type"} onClick={() => setScope("type")}>
               <CirclePlus size={15} />
               Type it
             </button>
           </div>
         </div>
 
-        {mode === "type" ? (
+        {scope === "type" ? (
           <input
             className={`input big mono ${poNumber && !valid ? "invalid" : ""}`}
             autoCapitalize="characters"
@@ -247,7 +304,9 @@ export default function PoPanel({
             />
             {listed.length === 0 ? (
               <div className="empty" style={{ padding: 22 }}>
-                {registry.length === 0
+                {scope === "here"
+                  ? `No order is open at ${step.step_name}. Switch to All known, or type one.`
+                  : registry.length === 0
                   ? "No POs yet. Use Type it to start one."
                   : "No PO matches that filter."}
               </div>
@@ -262,12 +321,18 @@ export default function PoPanel({
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div className="lid mono">{r.po_number}</div>
-                      <div className="where">Last at {r.last_step}</div>
+                      <div className="where">
+                        {r.state && r.state.since
+                          ? `${r.state.label} since ${formatStamp(r.state.since)}`
+                          : `Last at ${r.last_step}`}
+                      </div>
                     </div>
-                    {r.openHere ? (
-                      <span className="badge warn">Open here</span>
+                    {r.state && r.openHere ? (
+                      <span className={`state-pill ${r.state.tone}`}>
+                        {r.state.label}
+                      </span>
                     ) : (
-                      <span className="badge">{r.record_count}</span>
+                      <span className="badge">{r.last_step}</span>
                     )}
                   </button>
                 ))}
@@ -300,8 +365,6 @@ export default function PoPanel({
         segments={segments}
         step={step}
         operators={operators}
-        linked={linked}
-        onLinkChange={setLinked}
         onPress={(a) => void press(a)}
         disabled={busy || !valid}
       />

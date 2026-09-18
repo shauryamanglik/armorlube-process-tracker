@@ -43,8 +43,8 @@ import {
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
 import EditLogModal from "./EditLogModal";
-import LotPicker, { type LotState } from "./LotPicker";
-import PhaseControls from "./PhaseControls";
+import LotPicker, { type LotHere, type LotState } from "./LotPicker";
+import PhaseControls, { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
 
 type Props = {
@@ -73,7 +73,6 @@ export default function StepPanel({
   const [timeMode, setTimeMode] = useState<"now" | "custom">("now");
   const [customDate, setCustomDate] = useState(todayInPhoenix());
   const [customTime, setCustomTime] = useState(nowClockInPhoenix());
-  const [linked, setLinked] = useState(true);
 
   const [recent, setRecent] = useState<LogRow[]>([]);
   const [record, setRecord] = useState<LogRow | null>(null);
@@ -87,7 +86,54 @@ export default function StepPanel({
 
   const lotValid = LOT_PATTERN.test(lotId);
 
-  useEffect(() => setLinked(true), [lotId]);
+
+  const [hereStates, setHereStates] = useState<LotHere[]>([]);
+
+  /**
+   * Lots with a record at this station, and whether each is waiting or being
+   * worked. This is the default list an operator sees, because it is almost
+   * always the one they want.
+   */
+  const loadHere = useCallback(async () => {
+    const { data: recs } = await supabase
+      .from("logs")
+      .select("id, lot_id, pass_no")
+      .eq("step_id", step.id)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(120);
+    if (!recs || recs.length === 0) {
+      setHereStates([]);
+      return;
+    }
+    const ids = recs.map((r) => r.id as string);
+    const { data: segs } = await supabase
+      .from("segments")
+      .select("*")
+      .in("log_id", ids);
+
+    const byLog = new Map<string, Segment[]>();
+    for (const sg of (segs ?? []) as Segment[]) {
+      if (!sg.log_id) continue;
+      const list = byLog.get(sg.log_id) ?? [];
+      list.push(sg);
+      byLog.set(sg.log_id, list);
+    }
+
+    const out: LotHere[] = [];
+    const seen = new Set<string>();
+    for (const r of recs) {
+      const lot = r.lot_id as string;
+      if (seen.has(lot)) continue;
+      seen.add(lot);
+      const st = liveState(byLog.get(r.id as string) ?? []);
+      // A lot that has finished here has moved on, so it is not "at" this
+      // station any more and would only clutter the list.
+      if (st.tone === "done") continue;
+      out.push({ lot_id: lot, label: st.label, tone: st.tone, since: st.since });
+    }
+    setHereStates(out);
+  }, [step.id]);
 
   const loadRecent = useCallback(async () => {
     const { data } = await supabase
@@ -102,7 +148,8 @@ export default function StepPanel({
 
   useEffect(() => {
     void loadRecent();
-  }, [loadRecent]);
+    void loadHere();
+  }, [loadRecent, loadHere]);
 
   /**
    * Look the lot up at this step directly, newest pass first. Searching the
@@ -215,7 +262,7 @@ export default function StepPanel({
           .eq("id", target.id);
       }
 
-      const plan = planAction(segments, action, linked, step);
+      const plan = planAction(segments, action, true, step);
       const ts = stamp();
       const res = await applyPlan(plan, { kind: "log", id: target.id }, ts, crew);
 
@@ -227,7 +274,7 @@ export default function StepPanel({
 
       const fresh = await loadSegments({ kind: "log", id: target.id });
       setSegments(fresh);
-      await loadRecent();
+      await Promise.all([loadRecent(), loadHere()]);
       onLotsChanged();
 
       // Closing the step's exit phase hands the lot onward. The final step
@@ -361,7 +408,7 @@ export default function StepPanel({
       return;
     }
     onToast(`Record for ${l.lot_id} deleted.`);
-    await Promise.all([loadRecent(), lookup()]);
+    await Promise.all([loadRecent(), lookup(), loadHere()]);
     onLotsChanged();
   }
 
@@ -420,7 +467,7 @@ export default function StepPanel({
       }
 
       setSegments(await loadSegments({ kind: "log", id: target.id }));
-      await loadRecent();
+      await Promise.all([loadRecent(), loadHere()]);
       onLotsChanged();
       setRouting({ lot: lotId, stamp: ts });
     } finally {
@@ -448,6 +495,8 @@ export default function StepPanel({
           value={lotId}
           onChange={(v) => setLotId(normalizeLot(v))}
           lots={lots}
+          here={hereStates}
+          stepName={step.step_name}
           state={lotState}
           entryStep={Boolean(step.is_entry)}
         />
@@ -571,8 +620,6 @@ export default function StepPanel({
           segments={segments}
           step={step}
           operators={operators}
-          linked={linked}
-          onLinkChange={setLinked}
           onPress={(a) => void press(a)}
           disabled={busy || !lotValid}
           arrivedFrom={arrivedFrom}

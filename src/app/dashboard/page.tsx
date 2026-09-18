@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   BarChart3,
+  CircleCheck,
   Clock3,
   Download,
   FileSpreadsheet,
@@ -15,6 +17,7 @@ import {
   LogIn,
   RefreshCw,
   Settings as SettingsIcon,
+  SkipForward,
   Timer,
   TriangleAlert,
   Users,
@@ -35,6 +38,8 @@ import {
   poThroughputByDay,
   poWaitShare,
   slowestLots,
+  lotStatuses,
+  poStatuses,
   slowestPos,
   waitShare,
   summarisePos,
@@ -49,7 +54,12 @@ import {
   trendByDay,
   type Enriched,
 } from "@/lib/analytics";
-import { DEFAULT_RULES, formatDuration, toHours } from "@/lib/time";
+import {
+  DEFAULT_RULES,
+  formatDuration,
+  formatStamp,
+  toHours,
+} from "@/lib/time";
 import { crewOf } from "@/lib/segments";
 import { liveSteps } from "@/lib/types";
 import type {
@@ -63,6 +73,8 @@ import type {
 import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
 import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock";
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
+import { LotDetail, PoDetail } from "@/components/DetailDrawer";
+import { supabase } from "@/lib/supabase";
 
 const KEY_STORE = "apt.key.v1";
 
@@ -104,8 +116,15 @@ export default function DashboardPage() {
   const [showDeleted, setShowDeleted] = useState(false);
 
   const [tab, setTab] = useState<
-    "charts" | "raw" | "lots" | "pos" | "settings"
+    "charts" | "raw" | "lots" | "pos" | "bypo" | "settings"
   >("charts");
+  /** Which lot or order the detail drawer is showing. */
+  const [openLot, setOpenLot] = useState<string | null>(null);
+  const [openPo, setOpenPo] = useState<string | null>(null);
+  /** Narrow the lots list to live, completed, or those that skipped a step. */
+  const [lotView, setLotView] = useState<"all" | "live" | "done" | "skipped">(
+    "all"
+  );
   /** Elapsed time is the headline. Labour hours are opt in. */
   const [labourView, setLabourView] = useState(false);
   /** Which measure the day by day charts plot, and how a day is summarised. */
@@ -220,6 +239,27 @@ export default function DashboardPage() {
     });
   }, [rows, area, stepId, operator, blast, lotSearch, onlyFlagged, hideIncomplete]);
 
+  /**
+   * The same filters the lots obey. These were being ignored, so the purchase
+   * order tabs showed everything regardless of what was selected above.
+   */
+  const filteredPos = useMemo(() => {
+    return poRows.filter((r) => {
+      if (area && r.step?.area !== area) return false;
+      if (stepId && r.po.step_id !== stepId) return false;
+      if (lotSearch && !r.po.po_number.includes(lotSearch.trim().toUpperCase()))
+        return false;
+      if (operator) {
+        const touched = r.segments.some((sg) =>
+          [...(sg.started_by ?? []), ...(sg.ended_by ?? [])].includes(operator)
+        );
+        if (!touched) return false;
+      }
+      if (hideIncomplete && r.running) return false;
+      return true;
+    });
+  }, [poRows, area, stepId, lotSearch, operator, hideIncomplete]);
+
   const byStep = useMemo(() => bucketBy(filtered, "step"), [filtered]);
   const byArea = useMemo(() => bucketBy(filtered, "area"), [filtered]);
   const trend = useMemo(() => trendByDay(filtered), [filtered]);
@@ -239,26 +279,94 @@ export default function DashboardPage() {
     () => interruptionsByStep(filtered),
     [filtered]
   );
-  const poSummaries = useMemo(() => summarisePos(poRows), [poRows]);
+  const poSummaries = useMemo(() => summarisePos(filteredPos), [filteredPos]);
   const poDaily = useMemo(
-    () => dailySeriesPo(poRows, metric, agg),
-    [poRows, metric, agg]
+    () => dailySeriesPo(filteredPos, metric, agg),
+    [filteredPos, metric, agg]
   );
 
   const opHours = useMemo(
-    () => operatorHours(filtered, poRows, opNames, rules, includeOffShift),
+    () => operatorHours(filtered, filteredPos, opNames, rules, includeOffShift),
     [filtered, poRows, opNames, rules, includeOffShift]
   );
   const shares = useMemo(() => waitShare(byStep), [byStep]);
   const blastRows = useMemo(() => blastComparison(filtered), [filtered]);
   const slowLots = useMemo(() => slowestLots(filtered), [filtered]);
   const weekday = useMemo(() => byWeekday(filtered), [filtered]);
-  const poStationRows = useMemo(() => poByStation(poRows), [poRows]);
-  const poShares = useMemo(() => poWaitShare(poRows), [poRows]);
-  const poThroughput = useMemo(() => poThroughputByDay(poRows), [poRows]);
-  const slowPos = useMemo(() => slowestPos(poRows), [poRows]);
+  const poStationRows = useMemo(() => poByStation(filteredPos), [filteredPos]);
+  const poShares = useMemo(() => poWaitShare(filteredPos), [filteredPos]);
+  const poThroughput = useMemo(() => poThroughputByDay(filteredPos), [filteredPos]);
+  const slowPos = useMemo(() => slowestPos(filteredPos), [filteredPos]);
+
+  const statuses = useMemo(
+    () => lotStatuses(filtered, data?.steps ?? []),
+    [filtered, data]
+  );
+  const poStatusRows = useMemo(() => poStatuses(filteredPos), [filteredPos]);
+
+  const shownLots = useMemo(() => {
+    if (lotView === "live") return statuses.filter((s) => s.live);
+    if (lotView === "done") return statuses.filter((s) => !s.live);
+    if (lotView === "skipped")
+      return statuses.filter((s) => s.skipped.length > 0);
+    return statuses;
+  }, [statuses, lotView]);
 
   const controlProps = { metric, setMetric, agg, setAgg };
+
+  /**
+   * Deletes here are the same soft delete the floor screens use, so a record
+   * removed from the dashboard stays in the audit trail and can be put back.
+   */
+  async function softDeleteLog(id: string) {
+    if (!window.confirm("Delete this record? It can be restored from here.")) return;
+    const { error } = await supabase
+      .from("logs")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      setLoadError("Could not delete that record.");
+      return;
+    }
+    await load();
+  }
+
+  async function restoreLog(id: string) {
+    const { error } = await supabase
+      .from("logs")
+      .update({ deleted_at: null })
+      .eq("id", id);
+    if (error) {
+      setLoadError("Could not restore that record.");
+      return;
+    }
+    await load();
+  }
+
+  async function softDeletePo(id: string) {
+    if (!window.confirm("Delete this record? It can be restored from here.")) return;
+    const { error } = await supabase
+      .from("po_logs")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) {
+      setLoadError("Could not delete that record.");
+      return;
+    }
+    await load();
+  }
+
+  async function restorePo(id: string) {
+    const { error } = await supabase
+      .from("po_logs")
+      .update({ deleted_at: null })
+      .eq("id", id);
+    if (error) {
+      setLoadError("Could not restore that record.");
+      return;
+    }
+    await load();
+  }
 
   /** The whole range as a spreadsheet, laid out one row per lot. */
   function exportExcel() {
@@ -629,9 +737,13 @@ export default function DashboardPage() {
               <ListOrdered size={15} />
               By lot
             </button>
+            <button aria-pressed={tab === "bypo"} onClick={() => setTab("bypo")}>
+              <ListOrdered size={15} />
+              By PO
+            </button>
             <button aria-pressed={tab === "pos"} onClick={() => setTab("pos")}>
               <FileText size={15} />
-              Purchase orders
+              PO charts
             </button>
             <button aria-pressed={tab === "raw"} onClick={() => setTab("raw")}>
               <Clock3 size={15} />
@@ -895,46 +1007,202 @@ export default function DashboardPage() {
         )}
 
         {tab === "lots" && (
+          <div className="stack">
+            <div className="panel">
+              <div className="row" style={{ marginBottom: 12 }}>
+                <div className="seg">
+                  <button
+                    aria-pressed={lotView === "all"}
+                    onClick={() => setLotView("all")}
+                  >
+                    All lots
+                    <span className="badge">{statuses.length}</span>
+                  </button>
+                  <button
+                    aria-pressed={lotView === "live"}
+                    onClick={() => setLotView("live")}
+                  >
+                    <Activity size={15} />
+                    On the line
+                    <span className="badge">
+                      {statuses.filter((s) => s.live).length}
+                    </span>
+                  </button>
+                  <button
+                    aria-pressed={lotView === "done"}
+                    onClick={() => setLotView("done")}
+                  >
+                    <CircleCheck size={15} />
+                    Completed
+                    <span className="badge">
+                      {statuses.filter((s) => !s.live).length}
+                    </span>
+                  </button>
+                  <button
+                    aria-pressed={lotView === "skipped"}
+                    onClick={() => setLotView("skipped")}
+                  >
+                    <SkipForward size={15} />
+                    Skipped a step
+                    <span className="badge">
+                      {statuses.filter((s) => s.skipped.length > 0).length}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <p className="chart-desc">
+                Every lot in range with where it is and what it is doing. Click
+                a row for its full history, warnings and the records behind the
+                numbers. Skips are worked out from gaps in the route;{" "}
+                <strong>Incoming Inspection and Oil/Shipping never count</strong>,
+                because a lot is created at one and never reaches the other.
+              </p>
+
+              <div className="table-wrap scroll-y" style={{ maxHeight: 620 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Lot</th>
+                      <th>Where</th>
+                      <th>State</th>
+                      <th>Since</th>
+                      <th>Queue</th>
+                      <th>Process</th>
+                      <th>Total</th>
+                      <th>Steps</th>
+                      <th>Skipped</th>
+                      <th>Sent back</th>
+                      <th>Pass</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shownLots.map((l) => (
+                      <tr
+                        key={l.lot}
+                        className="clickable"
+                        onClick={() => setOpenLot(l.lot)}
+                      >
+                        <td>
+                          <span className="row-link mono">{l.lot}</span>
+                        </td>
+                        <td>{l.live ? l.step : "Off the line"}</td>
+                        <td>
+                          <span
+                            className={`state-pill ${
+                              l.state === "In process"
+                                ? "process"
+                                : l.state === "In queue"
+                                ? "queue"
+                                : l.live
+                                ? "idle"
+                                : "done"
+                            }`}
+                          >
+                            {l.live ? l.state : "Completed"}
+                          </span>
+                        </td>
+                        <td className="mono">{formatStamp(l.since)}</td>
+                        <td>{formatDuration(l.queueMs)}</td>
+                        <td>{formatDuration(l.processMs)}</td>
+                        <td>
+                          <strong>{formatDuration(l.totalMs)}</strong>
+                        </td>
+                        <td>{l.records.length}</td>
+                        <td>
+                          {l.skipped.length > 0 ? (
+                            <span className="badge warn">
+                              {l.skipped.length}
+                            </span>
+                          ) : (
+                            ""
+                          )}
+                        </td>
+                        <td>{l.interruptions || ""}</td>
+                        <td>
+                          {l.pass > 1 ? (
+                            <span className="badge warn">{l.pass}</span>
+                          ) : (
+                            ""
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {shownLots.length === 0 && (
+                <div className="empty">No lot matches this view.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === "bypo" && (
           <div className="panel">
-            <h2 className="section-title">Time per lot across every step</h2>
+            <p className="chart-desc">
+              Every purchase order in range with where it is and what it is
+              doing. Click a row for its full history across both stations.
+            </p>
             <div className="table-wrap scroll-y" style={{ maxHeight: 620 }}>
               <table>
                 <thead>
                   <tr>
-                    <th>Lot</th>
-                    <th>Steps logged</th>
+                    <th>PO</th>
+                    <th>Where</th>
+                    <th>State</th>
+                    <th>Since</th>
                     <th>Queue</th>
                     <th>Process</th>
                     <th>Total</th>
-                    <th>State</th>
+                    <th>Labour</th>
+                    <th>Stations</th>
+                    <th>Sent back</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lots.map((l) => (
-                    <tr key={l.lot}>
-                      <td className="mono">{l.lot}</td>
-                      <td>{l.steps}</td>
-                      <td>{formatDuration(l.queueMs)}</td>
-                      <td>{formatDuration(l.processMs)}</td>
+                  {poStatusRows.map((p) => (
+                    <tr
+                      key={p.po}
+                      className="clickable"
+                      onClick={() => setOpenPo(p.po)}
+                    >
                       <td>
-                        <strong>{formatDuration(l.totalMs)}</strong>
+                        <span className="row-link mono">{p.po}</span>
                       </td>
+                      <td>{p.live ? p.station : "Finished"}</td>
                       <td>
-                        {l.flagged ? (
-                          <span className="badge warn">
-                            <TriangleAlert size={12} />
-                            Crosses shift
-                          </span>
-                        ) : (
-                          <span className="badge ok">Clean</span>
-                        )}
+                        <span
+                          className={`state-pill ${
+                            p.state === "In process"
+                              ? "process"
+                              : p.state === "In queue"
+                              ? "queue"
+                              : p.live
+                              ? "idle"
+                              : "done"
+                          }`}
+                        >
+                          {p.state}
+                        </span>
                       </td>
+                      <td className="mono">{formatStamp(p.since)}</td>
+                      <td>{formatDuration(p.queueMs)}</td>
+                      <td>{formatDuration(p.processMs)}</td>
+                      <td>
+                        <strong>{formatDuration(p.totalMs)}</strong>
+                      </td>
+                      <td>{formatDuration(p.labourMs)}</td>
+                      <td>{p.records.length}</td>
+                      <td>{p.interruptions || ""}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {lots.length === 0 && <div className="empty">No lots in this range.</div>}
+            {poStatusRows.length === 0 && (
+              <div className="empty">No purchase order matches these filters.</div>
+            )}
           </div>
         )}
 
@@ -962,7 +1230,17 @@ export default function DashboardPage() {
                 <tbody>
                   {filtered.slice(0, 1000).map((r) => (
                     <tr key={r.log.id}>
-                      <td className="mono">{r.log.lot_id}</td>
+                      <td>
+                        <button
+                          className="row-link mono"
+                          onClick={() => {
+                            setOpenLot(r.log.lot_id);
+                            setTab("lots");
+                          }}
+                        >
+                          {r.log.lot_id}
+                        </button>
+                      </td>
                       <td>
                         {r.log.pass_no > 1 ? (
                           <span className="badge warn">{r.log.pass_no}</span>
@@ -994,11 +1272,13 @@ export default function DashboardPage() {
                         {r.log.deleted_at ? (
                           <span className="badge bad">Deleted</span>
                         ) : r.incomplete ? (
-                          <span className="badge warn">Missing a time</span>
+                          <span className="badge warn">Still running</span>
                         ) : r.flagged ? (
                           <span className="badge info">Crosses shift</span>
                         ) : (
-                          <span className="badge ok">Clean</span>
+                          <span className="badge ok">
+                            {formatDuration(r.totalMs)}
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -1201,9 +1481,9 @@ export default function DashboardPage() {
                 One row per order per station. An order appears twice if it was
                 handled at both ends of the line.
               </p>
-              {poRows.length === 0 ? (
+              {filteredPos.length === 0 ? (
                 <div className="empty">
-                  No purchase order records in this range.
+                  No purchase order records match these filters.
                 </div>
               ) : (
                 <div className="table-wrap scroll-y" style={{ maxHeight: 560 }}>
@@ -1223,9 +1503,19 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {poRows.map((r) => (
+                      {filteredPos.map((r) => (
                         <tr key={r.po.id}>
-                          <td className="mono">{r.po.po_number}</td>
+                          <td>
+                            <button
+                              className="row-link mono"
+                              onClick={() => {
+                                setOpenPo(r.po.po_number);
+                                setTab("bypo");
+                              }}
+                            >
+                              {r.po.po_number}
+                            </button>
+                          </td>
                           <td>{r.step?.step_name}</td>
                           <td className="mono">{r.po.log_date}</td>
                           <td>{formatDuration(r.queueMs)}</td>
@@ -1261,6 +1551,34 @@ export default function DashboardPage() {
         )}
 
         {tab === "settings" && <SettingsPanel apiKey={key} onSaved={load} />}
+
+      {openLot && (() => {
+          const st = statuses.find((x) => x.lot === openLot);
+          if (!st) return null;
+          return (
+            <LotDetail
+              status={st}
+              operators={data?.operators ?? []}
+              onClose={() => setOpenLot(null)}
+              onDelete={(id) => void softDeleteLog(id)}
+              onRestore={(id) => void restoreLog(id)}
+            />
+          );
+        })()}
+
+      {openPo && (() => {
+          const st = poStatusRows.find((x) => x.po === openPo);
+          if (!st) return null;
+          return (
+            <PoDetail
+              status={st}
+              operators={data?.operators ?? []}
+              onClose={() => setOpenPo(null)}
+              onDelete={(id) => void softDeletePo(id)}
+              onRestore={(id) => void restorePo(id)}
+            />
+          );
+        })()}
 
         <p className="hint" style={{ paddingBottom: 30 }}>
           Times are shown in Tucson local time. Working hours are{" "}

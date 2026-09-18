@@ -1082,92 +1082,200 @@ tbody tr:last-child td {
   margin-top: 2px;
 }
 
-/* ---------- link strip between queue and process ----------
-   Sits in the gap between the two phase cards and shows, spatially, that
-   ending the queue and starting the process are the same moment. */
+/* ---------- back to queue ---------- */
 
-.link-strip {
+/* ---------- action buttons, in work order ---------- */
+
+.actions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.abtn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: -6px 0;
-  padding: 0 14px;
-}
-
-.link-line {
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-}
-
-.link-strip.on .link-line {
-  background: linear-gradient(
-    90deg,
-    rgba(240, 169, 46, 0.5),
-    rgba(76, 141, 246, 0.5)
-  );
-}
-
-.link-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 13px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: var(--r-lg);
+  border: 1.5px solid var(--line);
   background: var(--surface-2);
-  font-size: 12.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  transition: all 0.12s ease;
+  text-align: left;
+  transition: filter 0.12s ease, border-color 0.12s ease;
 }
 
-.link-strip.on .link-toggle {
-  border-color: rgba(76, 141, 246, 0.45);
-  background: #16202f;
-  color: #9cc0ff;
+.abtn:active {
+  transform: scale(0.995);
 }
 
-.link-toggle:hover {
-  filter: brightness(1.15);
+.abtn:hover:not(:disabled) {
+  filter: brightness(1.1);
 }
 
-.link-note {
-  font-size: 11.5px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  opacity: 0.8;
+.abtn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.abtn .a-ico {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.09);
+  flex: none;
+}
+
+.abtn .a-label {
+  display: block;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+.abtn .a-sub {
+  display: block;
+  font-size: 13px;
+  opacity: 0.85;
   margin-top: 2px;
 }
 
-/* ---------- back to queue ---------- */
-
-.btn.back-to-queue {
-  width: 100%;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 15px 17px;
-  border-color: rgba(240, 169, 46, 0.4);
-  background: rgba(240, 169, 46, 0.08);
-  color: var(--hold);
-  font-weight: 600;
-  font-size: 15.5px;
+/* it arrived */
+.abtn.ready.in {
+  background: #1a9c56;
+  border-color: #27b569;
+  color: #eafff2;
 }
 
-.btn.back-to-queue:hover:not(:disabled) {
-  background: rgba(240, 169, 46, 0.14);
+/* work starts, the merged queue out and process in */
+.abtn.ready.mid {
+  background: #2f6fd0;
+  border-color: #4c8df6;
+  color: #eef4ff;
 }
 
-.btn.back-to-queue .hint {
-  font-weight: 400;
+/* work finishes */
+.abtn.ready.out {
+  background: #c3363b;
+  border-color: #dc4449;
+  color: #ffeced;
+}
+
+.abtn.ready.out.final {
+  background: #7a2f8f;
+  border-color: #9b4fb0;
+  color: #f8ecfb;
+}
+
+/* not this button's turn */
+.abtn.waiting {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
+.abtn.waiting .a-label {
+  color: var(--text-dim);
+}
+
+.abtn.waiting .a-sub {
   color: var(--text-faint);
 }
 
-@media (max-width: 520px) {
-  .btn.back-to-queue .hint {
-    display: none;
-  }
+.abtn.waiting .a-ico {
+  background: var(--surface-3);
+  color: var(--text-faint);
+}
+
+.abtn.armed {
+  background: #33270f;
+  border-color: var(--hold);
+}
+
+.abtn.armed .a-label,
+.abtn.armed .a-sub {
+  color: var(--hold);
+}
+
+.abtn.back {
+  background: rgba(240, 169, 46, 0.09);
+  border-color: rgba(240, 169, 46, 0.42);
+}
+
+.abtn.back .a-label {
+  color: var(--hold);
+  font-size: 16px;
+}
+
+.abtn.back .a-sub {
+  color: var(--text-faint);
+}
+
+.abtn.back .a-ico {
+  background: rgba(240, 169, 46, 0.14);
+  color: var(--hold);
+}
+
+/* ---------- running totals ---------- */
+
+.phase-stat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.phase-stat.queue {
+  border-left: 3px solid var(--hold);
+}
+
+.phase-stat.process {
+  border-left: 3px solid var(--info);
+}
+
+.phase-stat.queue .phase-mark {
+  background: rgba(240, 169, 46, 0.13);
+  color: var(--hold);
+}
+
+.phase-stat.process .phase-mark {
+  background: rgba(76, 141, 246, 0.14);
+  color: var(--info);
+}
+
+.ps-k {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.ps-v {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin-top: 1px;
+}
+
+.ps-live {
+  font-size: 11.5px;
+  color: var(--run);
+  margin-top: 1px;
+}
+
+.arrived-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
 }
 
 /* ---------- interval history ---------- */
@@ -1370,4 +1478,108 @@ tbody tr:last-child td {
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+}
+
+/* ---------- state pills ---------- */
+
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: none;
+}
+
+.state-pill.queue {
+  background: rgba(240, 169, 46, 0.14);
+  color: var(--hold);
+  border: 1px solid rgba(240, 169, 46, 0.34);
+}
+
+.state-pill.process {
+  background: rgba(76, 141, 246, 0.14);
+  color: #8ab4ff;
+  border: 1px solid rgba(76, 141, 246, 0.34);
+}
+
+.state-pill.done {
+  background: rgba(47, 191, 113, 0.12);
+  color: var(--run);
+  border: 1px solid rgba(47, 191, 113, 0.3);
+}
+
+.state-pill.idle {
+  background: var(--surface-3);
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+}
+
+/* ---------- detail drawer ---------- */
+
+.modal.wide {
+  max-width: 880px;
+}
+
+.detail-head {
+  position: sticky;
+  top: -22px;
+  background: var(--surface);
+  padding-top: 2px;
+  padding-bottom: 8px;
+  z-index: 2;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.detail-head h3 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.detail-card {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  padding: 14px;
+}
+
+.detail-card.deleted {
+  opacity: 0.62;
+  border-style: dashed;
+}
+
+.warn-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--hold);
+  background: rgba(240, 169, 46, 0.08);
+  border: 1px solid rgba(240, 169, 46, 0.26);
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+}
+
+/* rows that open a drawer */
+tbody tr.clickable {
+  cursor: pointer;
+}
+
+tbody tr.clickable:hover {
+  background: var(--surface-3);
+}
+
+.row-link {
+  background: none;
+  color: var(--info);
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+}
+
+.row-link:hover {
+  text-decoration: underline;
 }

@@ -788,3 +788,183 @@ export function slowestPos(rows: EnrichedPo[], limit = 20): DayRow[] {
       Process: toHours(p.processMs),
     }));
 }
+
+// ============================================================
+// Lot and order state, and skips
+// ============================================================
+
+/**
+ * Skipping the first and last stations is normal rather than an exception.
+ * A lot is created at incoming and never goes to oil and shipping, because
+ * by then it has been split back into orders.
+ */
+function countsForSkips(step: Step): boolean {
+  return (
+    step.active !== false &&
+    step.tracks_lots !== false &&
+    !step.is_entry &&
+    !step.tracks_po
+  );
+}
+
+export type LotStatus = {
+  lot: string;
+  live: boolean;
+  step: string;
+  area: string;
+  sortOrder: number;
+  state: "In queue" | "In process" | "Waiting to move" | "Finished";
+  since: string | null;
+  pass: number;
+  skipped: string[];
+  interruptions: number;
+  queueMs: number;
+  processMs: number;
+  totalMs: number;
+  records: Enriched[];
+};
+
+/** Where every lot is, what it is doing, and what it passed over. */
+export function lotStatuses(rows: Enriched[], steps: Step[]): LotStatus[] {
+  const skipCandidates = steps.filter(countsForSkips);
+  const byLot = new Map<string, Enriched[]>();
+  for (const r of rows) {
+    const list = byLot.get(r.log.lot_id) ?? [];
+    list.push(r);
+    byLot.set(r.log.lot_id, list);
+  }
+
+  return Array.from(byLot.entries())
+    .map(([lot, list]) => {
+      const pass = Math.max(...list.map((r) => r.log.pass_no));
+      const current = list
+        .filter((r) => r.log.pass_no === pass)
+        .sort((a, b) => (b.step?.sort_order ?? 0) - (a.step?.sort_order ?? 0))[0];
+
+      const segs = current?.segments ?? [];
+      const openQueue = segs.find((s) => s.kind === "queue" && !s.ended_at);
+      const openProcess = segs.find((s) => s.kind === "process" && !s.ended_at);
+      const finishedHere = current?.step?.is_final && segs.some(
+        (s) => s.kind === "process" && s.ended_at
+      );
+
+      const state: LotStatus["state"] = openProcess
+        ? "In process"
+        : openQueue
+        ? "In queue"
+        : finishedHere
+        ? "Finished"
+        : "Waiting to move";
+
+      const touched = new Set(
+        list.map((r) => r.step?.sort_order).filter(Boolean) as number[]
+      );
+      const highest = Math.max(...Array.from(touched), 0);
+      const skipped = skipCandidates
+        .filter((s) => s.sort_order < highest && !touched.has(s.sort_order))
+        .map((s) => s.step_name);
+
+      return {
+        lot,
+        live: !finishedHere,
+        step: current?.step?.step_name ?? "Unknown",
+        area: current?.step?.area ?? "",
+        sortOrder: current?.step?.sort_order ?? 0,
+        state,
+        since:
+          openProcess?.started_at ??
+          openQueue?.started_at ??
+          current?.log.updated_at ??
+          null,
+        pass,
+        skipped,
+        interruptions: list.reduce((a, r) => a + r.interruptions, 0),
+        queueMs: list.reduce((a, r) => a + r.queueMs, 0),
+        processMs: list.reduce((a, r) => a + r.processMs, 0),
+        totalMs: list.reduce((a, r) => a + r.totalMs, 0),
+        records: list.sort(
+          (a, b) => (a.step?.sort_order ?? 0) - (b.step?.sort_order ?? 0)
+        ),
+      };
+    })
+    .sort((a, b) => a.lot.localeCompare(b.lot));
+}
+
+export type PoStatus = {
+  po: string;
+  live: boolean;
+  station: string;
+  state: "In queue" | "In process" | "Waiting" | "Finished";
+  since: string | null;
+  queueMs: number;
+  processMs: number;
+  totalMs: number;
+  labourMs: number;
+  interruptions: number;
+  records: EnrichedPo[];
+};
+
+export function poStatuses(rows: EnrichedPo[]): PoStatus[] {
+  const byPo = new Map<string, EnrichedPo[]>();
+  for (const r of rows) {
+    const list = byPo.get(r.po.po_number) ?? [];
+    list.push(r);
+    byPo.set(r.po.po_number, list);
+  }
+
+  return Array.from(byPo.entries())
+    .map(([po, list]) => {
+      const current = [...list].sort(
+        (a, b) => (b.step?.sort_order ?? 0) - (a.step?.sort_order ?? 0)
+      )[0];
+      const segs = current?.segments ?? [];
+      const openQueue = segs.find((s) => s.kind === "queue" && !s.ended_at);
+      const openProcess = segs.find((s) => s.kind === "process" && !s.ended_at);
+      const running = list.some((r) => r.running);
+
+      const state: PoStatus["state"] = openProcess
+          ? "In process"
+        : openQueue
+        ? "In queue"
+        : running
+        ? "Waiting"
+        : "Finished";
+
+      return {
+        po,
+        live: running,
+        station: current?.step?.step_name ?? "Unknown",
+        state,
+        since:
+          openProcess?.started_at ??
+          openQueue?.started_at ??
+          current?.po.updated_at ??
+          null,
+        queueMs: list.reduce((a, r) => a + r.queueMs, 0),
+        processMs: list.reduce((a, r) => a + r.processMs, 0),
+        totalMs: list.reduce((a, r) => a + r.totalMs, 0),
+        labourMs: list.reduce((a, r) => a + r.labourMs, 0),
+        interruptions: list.reduce((a, r) => a + r.interruptions, 0),
+        records: list,
+      };
+    })
+    .sort((a, b) => a.po.localeCompare(b.po));
+}
+
+/** Warnings worth surfacing on a record. */
+export function warningsFor(r: Enriched): string[] {
+  const out: string[] = [];
+  if (r.incomplete) out.push("A timestamp is missing, so this time is partial");
+  if (r.flagged) out.push("A stretch runs past a shift boundary");
+  if (r.log.pass_no > 1) out.push(`Rework, this is pass ${r.log.pass_no}`);
+  if (r.interruptions > 0)
+    out.push(
+      `Sent back to queue ${r.interruptions} ${
+        r.interruptions === 1 ? "time" : "times"
+      }`
+    );
+  if (r.step?.has_blast_type && !r.log.blast_type)
+    out.push("Blast type was never recorded");
+  if (r.log.deleted_at) out.push("This record was deleted");
+  return out;
+}

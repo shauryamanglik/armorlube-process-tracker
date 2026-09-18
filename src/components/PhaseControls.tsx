@@ -7,40 +7,34 @@ import {
   CornerUpLeft,
   History,
   Hourglass,
-  Link2,
   LogIn,
   LogOut,
-  Unlink,
+  PlayCircle,
+  PackageCheck,
 } from "lucide-react";
 import type { Operator, Segment } from "@/lib/types";
-import { formatDuration, formatStamp } from "@/lib/time";
-import {
-  interruptions,
-  ofKind,
-  openSegment,
-  rollup,
-} from "@/lib/segments";
+import { DEFAULT_RULES, formatDuration, formatStamp } from "@/lib/time";
+import { interruptions, ofKind, openSegment, rollup } from "@/lib/segments";
 import { planAction, type Action } from "@/lib/segmentActions";
-import { DEFAULT_RULES } from "@/lib/time";
 
 type Props = {
   segments: Segment[];
-  step: { has_queue: boolean; has_process: boolean };
+  step: { has_queue: boolean; has_process: boolean; is_final?: boolean };
   operators: Operator[];
-  linked: boolean;
-  onLinkChange: (v: boolean) => void;
   onPress: (a: Action) => void;
   disabled?: boolean;
-  /** Set when the entry timestamp came from an upstream handoff. */
   arrivedFrom?: string | null;
 };
 
+/**
+ * Queue out and process in were always the same moment, so they are one
+ * button. The sequence an operator sees is simply: it arrived, work started,
+ * work finished, with a way to send it back to the queue part way through.
+ */
 export default function PhaseControls({
   segments,
   step,
   operators,
-  linked,
-  onLinkChange,
   onPress,
   disabled,
   arrivedFrom,
@@ -57,7 +51,6 @@ export default function PhaseControls({
 
   useEffect(() => setArmed(null), [segments]);
 
-  const linkable = step.has_queue && step.has_process;
   const openQueue = openSegment(segments, "queue");
   const openProcess = openSegment(segments, "process");
   const q = rollup(segments, "queue", DEFAULT_RULES);
@@ -68,7 +61,7 @@ export default function PhaseControls({
     operators.find((o) => o.id === id)?.name ?? "Unknown";
 
   function fire(a: Action) {
-    const plan = planAction(segments, a, linked, step);
+    const plan = planAction(segments, a, true, step);
     if (plan.outOfOrder && armed !== a) {
       setArmed(a);
       return;
@@ -77,169 +70,162 @@ export default function PhaseControls({
     onPress(a);
   }
 
-  /** ready when it is the natural next press, waiting when it is not. */
-  function stateOf(a: Action): "ready" | "waiting" {
-    const plan = planAction(segments, a, linked, step);
-    return plan.outOfOrder ? "waiting" : "ready";
+  function state(a: Action): "ready" | "waiting" {
+    return planAction(segments, a, true, step).outOfOrder ? "waiting" : "ready";
   }
 
-  function whyWaiting(a: Action): string {
-    if (a === "queue_out") return "Nothing is queued right now";
-    if (a === "process_in")
-      return openProcess ? "Already running" : "Nothing queued yet";
-    if (a === "process_out") return "Nothing is running right now";
-    if (a === "queue_in") return "Already in the queue";
-    return "";
-  }
-
-  const cards = [
-    step.has_queue && {
-      id: "queue" as const,
-      name: "Queue",
-      sub: "Waiting, including any time sent back",
-      icon: <Hourglass size={17} />,
-      roll: q,
-      inAction: "queue_in" as Action,
-      outAction: "queue_out" as Action,
-    },
-    step.has_process && {
-      id: "process" as const,
-      name: "Process",
-      sub: "Work being done on it",
-      icon: <Cog size={17} />,
-      roll: p,
-      inAction: "process_in" as Action,
-      outAction: "process_out" as Action,
-    },
-  ].filter(Boolean) as {
-    id: "queue" | "process";
-    name: string;
+  /** The buttons, in the order the work actually happens. */
+  const actions: {
+    id: Action;
+    label: string;
     sub: string;
+    tone: "in" | "out" | "mid";
     icon: React.ReactNode;
-    roll: ReturnType<typeof rollup>;
-    inAction: Action;
-    outAction: Action;
-  }[];
+    show: boolean;
+  }[] = [
+    {
+      id: "queue_in",
+      label: "Queue in",
+      sub: openQueue
+        ? `Waiting since ${formatStamp(openQueue.started_at)}`
+        : "It arrived and is waiting",
+      tone: "in",
+      icon: <LogIn size={19} />,
+      show: step.has_queue,
+    },
+    {
+      id: "process_in",
+      label: "Start process",
+      sub: openProcess
+        ? `Running since ${formatStamp(openProcess.started_at)}`
+        : step.has_queue
+        ? "Ends the queue and starts the work"
+        : "Work starts",
+      tone: "mid",
+      icon: <PlayCircle size={19} />,
+      show: step.has_process,
+    },
+    {
+      id: "queue_out",
+      label: "Queue out",
+      sub: "It leaves the queue",
+      tone: "out",
+      icon: <LogOut size={19} />,
+      // Only a step with no process phase needs this on its own.
+      show: step.has_queue && !step.has_process,
+    },
+    {
+      id: "process_out",
+      label: step.is_final ? "Process out and close lot" : "Process out",
+      sub: step.is_final
+        ? "Finishes the work and retires the lot from the line"
+        : "Finishes the work and hands it on",
+      tone: "out",
+      icon: step.is_final ? <PackageCheck size={19} /> : <LogOut size={19} />,
+      show: step.has_process,
+    },
+  ];
 
   return (
     <div className="stack">
-      <div className="phases">
-        {cards.map((c, idx) => (
-          <div key={c.id} style={{ display: "contents" }}>
-            <section className={`phase ${c.id}`}>
-              <div className="phase-head">
-                <span className="phase-mark">{c.icon}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div className="phase-name">
-                    {c.name}
-                    {c.roll.count > 1 && (
-                      <span className="badge" style={{ marginLeft: 8 }}>
-                        {c.roll.count} stretches
-                      </span>
-                    )}
-                  </div>
-                  <div className="phase-sub">{c.sub}</div>
-                </div>
-                {c.roll.count > 0 && (
-                  <div className="phase-live">
-                    <div className="n">{formatDuration(c.roll.businessMs)}</div>
-                    <div className="l">
-                      {c.roll.running ? "running" : "total"}
-                    </div>
-                  </div>
+      {/* running totals */}
+      <div className="grid-2">
+        {step.has_queue && (
+          <div className="phase-stat queue">
+            <span className="phase-mark">
+              <Hourglass size={16} />
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="ps-k">
+                Queue
+                {q.count > 1 && (
+                  <span className="badge" style={{ marginLeft: 7 }}>
+                    {q.count}
+                  </span>
                 )}
               </div>
-
-              <div className="phase-body">
-                {[c.inAction, c.outAction].map((a) => {
-                  const isIn = a.endsWith("_in");
-                  const mode = stateOf(a);
-                  const isArmed = armed === a;
-                  const open = isIn
-                    ? c.id === "queue"
-                      ? openQueue
-                      : openProcess
-                    : null;
-
-                  return (
-                    <button
-                      key={a}
-                      className={[
-                        "tbtn",
-                        isIn ? "in" : "out",
-                        isArmed ? "armed" : mode,
-                      ].join(" ")}
-                      disabled={disabled}
-                      onClick={() => fire(a)}
-                    >
-                      <span className="t-top">
-                        {isIn ? <LogIn size={18} /> : <LogOut size={18} />}
-                        {c.name} {isIn ? "in" : "out"}
-                        {open && (
-                          <span className="tick">
-                            <CircleCheck size={16} />
-                          </span>
-                        )}
-                      </span>
-                      {isArmed ? (
-                        <span className="t-val">
-                          Out of order. Tap again to record it.
-                        </span>
-                      ) : open ? (
-                        <>
-                          <span className="t-val mono">
-                            {formatStamp(open.started_at)}
-                          </span>
-                          {arrivedFrom && c.id === "queue" && (
-                            <span className="arrived">
-                              <CornerUpLeft size={12} />
-                              Arrived from {arrivedFrom}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="t-val">
-                          {mode === "ready" ? "Tap to record" : whyWaiting(a)}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            {linkable && idx === 0 && cards.length === 2 && (
-              <div className={`link-strip ${linked ? "on" : ""}`}>
-                <span className="link-line" />
-                <button
-                  className="link-toggle"
-                  onClick={() => onLinkChange(!linked)}
-                  aria-pressed={linked}
-                >
-                  {linked ? <Link2 size={14} /> : <Unlink size={14} />}
-                  {linked ? "Queue out starts the process" : "Logged separately"}
-                </button>
-                <span className="link-line" />
-              </div>
-            )}
+              <div className="ps-v">{formatDuration(q.businessMs)}</div>
+              {q.running && <div className="ps-live">running now</div>}
+            </div>
           </div>
-        ))}
+        )}
+        {step.has_process && (
+          <div className="phase-stat process">
+            <span className="phase-mark">
+              <Cog size={16} />
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="ps-k">
+                Process
+                {p.count > 1 && (
+                  <span className="badge" style={{ marginLeft: 7 }}>
+                    {p.count}
+                  </span>
+                )}
+              </div>
+              <div className="ps-v">{formatDuration(p.businessMs)}</div>
+              {p.running && <div className="ps-live">running now</div>}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* sending it back mid job */}
-      {openProcess && step.has_queue && (
-        <button
-          className="btn back-to-queue"
-          disabled={disabled}
-          onClick={() => fire("back_to_queue")}
-        >
-          <CornerUpLeft size={17} />
-          Back to queue
-          <span className="hint" style={{ marginLeft: 6 }}>
-            stops the process timer, keeps everything logged
-          </span>
-        </button>
+      {arrivedFrom && openQueue && (
+        <div className="arrived-note">
+          <CornerUpLeft size={14} />
+          Arrived from {arrivedFrom} at{" "}
+          <span className="mono">{formatStamp(openQueue.started_at)}</span>
+        </div>
       )}
+
+      {/* the actions, in order */}
+      <div className="actions-col">
+        {actions
+          .filter((a) => a.show)
+          .map((a) => {
+            const mode = state(a.id);
+            const isArmed = armed === a.id;
+            return (
+              <button
+                key={a.id}
+                className={[
+                  "abtn",
+                  a.tone,
+                  isArmed ? "armed" : mode,
+                  a.id === "process_out" && step.is_final ? "final" : "",
+                ].join(" ")}
+                disabled={disabled}
+                onClick={() => fire(a.id)}
+              >
+                <span className="a-ico">{a.icon}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span className="a-label">{a.label}</span>
+                  <span className="a-sub">
+                    {isArmed ? "Out of order. Tap again to confirm." : a.sub}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+
+        {openProcess && step.has_queue && (
+          <button
+            className="abtn back"
+            disabled={disabled}
+            onClick={() => fire("back_to_queue")}
+          >
+            <span className="a-ico">
+              <CornerUpLeft size={19} />
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span className="a-label">Back to queue</span>
+              <span className="a-sub">
+                Stops the process timer, everything stays logged
+              </span>
+            </span>
+          </button>
+        )}
+      </div>
 
       {breaks > 0 && (
         <div className="lot-status repeat">
@@ -251,7 +237,6 @@ export default function PhaseControls({
         </div>
       )}
 
-      {/* interval history */}
       {segments.length > 0 && (
         <div className="panel tight">
           <button
@@ -304,3 +289,23 @@ export default function PhaseControls({
     </div>
   );
 }
+
+/** Current state of a record, for showing in lists. */
+export function liveState(segments: Segment[]): {
+  label: string;
+  tone: "queue" | "process" | "idle" | "done";
+  since: string | null;
+} {
+  const oq = openSegment(segments, "queue");
+  const op = openSegment(segments, "process");
+  if (op) return { label: "In process", tone: "process", since: op.started_at };
+  if (oq) return { label: "In queue", tone: "queue", since: oq.started_at };
+  if (segments.length === 0)
+    return { label: "Not started", tone: "idle", since: null };
+  const last = [...segments].sort((a, b) =>
+    (b.ended_at ?? "").localeCompare(a.ended_at ?? "")
+  )[0];
+  return { label: "Finished here", tone: "done", since: last?.ended_at ?? null };
+}
+
+export { CircleCheck };
