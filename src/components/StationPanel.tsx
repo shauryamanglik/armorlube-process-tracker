@@ -36,6 +36,7 @@ export default function StationPanel(props: Props) {
     return (
       <PoPanel
         step={props.step}
+        allSteps={props.allSteps}
         operators={props.operators}
         onOperatorsChanged={props.onOperatorsChanged}
         onToast={props.onToast}
@@ -65,6 +66,7 @@ export default function StationPanel(props: Props) {
       ) : (
         <PoPanel
           step={props.step}
+          allSteps={props.allSteps}
           operators={props.operators}
           onOperatorsChanged={props.onOperatorsChanged}
           onToast={props.onToast}

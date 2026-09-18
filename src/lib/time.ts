@@ -116,6 +116,54 @@ export function measureSpan(
   };
 }
 
+/**
+ * Split an interval's working time across the calendar days it touches.
+ * A process that runs from Monday afternoon into Tuesday morning contributes
+ * to both days, which is the only way a day-by-day chart means anything.
+ * Returns Phoenix dates as YYYY-MM-DD mapped to milliseconds.
+ */
+export function spreadAcrossDays(
+  startIso: string | null,
+  endIso: string | null,
+  rules: WorkRules = DEFAULT_RULES,
+  includeOffShift = false
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!startIso || !endIso) return out;
+
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return out;
+  if (end.getTime() <= start.getTime()) return out;
+
+  const s = toLocalSpace(start);
+  const e = toLocalSpace(end);
+  const openMin = hhmmToMinutes(rules.work_start);
+  const closeMin = hhmmToMinutes(rules.work_end);
+  const days = rules.work_days?.length ? rules.work_days : [1, 2, 3, 4, 5];
+
+  let cursor = startOfLocalDay(s);
+  let guard = 0;
+
+  while (cursor < e && guard < 4000) {
+    guard += 1;
+    const dayKey = new Date(cursor).toISOString().slice(0, 10);
+
+    if (includeOffShift) {
+      const from = Math.max(s, cursor);
+      const to = Math.min(e, cursor + DAY);
+      if (to > from) out.set(dayKey, (out.get(dayKey) ?? 0) + (to - from));
+    } else if (days.includes(localDayOfWeek(cursor))) {
+      const from = Math.max(s, cursor + openMin * MINUTE);
+      const to = Math.min(e, cursor + closeMin * MINUTE);
+      if (to > from) out.set(dayKey, (out.get(dayKey) ?? 0) + (to - from));
+    }
+    cursor += DAY;
+  }
+
+  return out;
+}
+
 /** Pick which number counts, based on the dashboard toggle. */
 export function spanValue(span: Span | null, includeOffShift: boolean): number {
   if (!span) return 0;
