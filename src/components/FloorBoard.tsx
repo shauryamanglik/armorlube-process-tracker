@@ -51,10 +51,10 @@ export function FloorColumnSet({
 }: Props) {
   const maxCount = Math.max(1, ...groups.map((g) => g.items.length));
   const h = barHeight(maxCount, Boolean(big));
-  // On a wall display the duration is the whole point, so it stays unless the
-  // bar is genuinely too thin to read. In fullscreen the bars stretch to fill
-  // the column, so there is almost always room.
-  const showTime = big || h >= 18;
+  // The duration is the whole point of the board, so it is never dropped.
+  // When a column fills up the text shrinks with the bar instead of
+  // disappearing, which is what used to happen past sixteen lots.
+  const fontPx = big ? undefined : h >= 26 ? 11.5 : h >= 19 ? 10.5 : h >= 15 ? 9.5 : 8.5;
   const running = groups.reduce((a, g) => a + g.runningCount, 0);
 
   return (
@@ -103,7 +103,10 @@ export function FloorColumnSet({
                     <button
                       key={`${it.ref}-${i}`}
                       className={`floor-bar ${it.running ? "live" : "done"}`}
-                      style={{ height: h }}
+                      style={{
+                        height: h,
+                        ...(fontPx ? { fontSize: `${fontPx}px` } : {}),
+                      }}
                       title={`${it.ref} at ${it.step}, ${formatDuration(
                         it.ms
                       )}, started ${formatClock(it.startedAt)}`}
@@ -114,11 +117,9 @@ export function FloorColumnSet({
                         style={{ width: `${Math.max(pct, 3)}%` }}
                       />
                       <span className="fb-label mono">{it.ref}</span>
-                      {showTime && (
-                        <span className="fb-time mono">
-                          {formatDuration(it.ms)}
-                        </span>
-                      )}
+                      <span className="fb-time mono">
+                        {formatDuration(it.ms)}
+                      </span>
                     </button>
                   );
                 })}

@@ -1998,10 +1998,28 @@ tbody tr.clickable:hover {
 .fb-label,
 .fb-time {
   position: relative;
-  font-size: 11.5px;
+  /* inherits the size the bar sets, so text scales with bar height */
+  font-size: inherit;
   font-weight: 700;
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  line-height: 1;
+}
+
+.floor-bar {
+  font-size: 11.5px;
+}
+
+/* the lot number gives way first, the duration never does */
+.fb-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.fb-time {
+  flex: 0 0 auto;
 }
 
 /* The label can sit over the coloured fill or over the empty track behind
@@ -2029,9 +2047,11 @@ tbody tr.clickable:hover {
   opacity: 0.9;
 }
 
+/* On a wall the text should scale with the screen, not sit at one size that
+   is right for a laptop and small on a 55 inch display. */
 .floor-shell.full .fb-label,
 .floor-shell.full .fb-time {
-  font-size: 17px;
+  font-size: clamp(13px, 1.05vw, 24px);
 }
 
 .floor-empty {
