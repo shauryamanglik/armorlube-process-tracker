@@ -78,6 +78,8 @@ import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
 import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock";
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
+import LiveBoard from "@/components/LiveBoard";
+import { lotBoard, poBoard } from "@/lib/liveboard";
 import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
 import FloorBoard from "@/components/FloorBoard";
 import { supabase } from "@/lib/supabase";
@@ -125,6 +127,9 @@ export default function DashboardPage() {
     "charts" | "raw" | "lots" | "pos" | "bypo" | "settings"
   >("charts");
   /** Which lot or order the detail drawer is showing. */
+  /** The floor board is a single day, and today is what matters on a wall. */
+  const [boardDay, setBoardDay] = useState(() => todayInPhoenix());
+  const [boardTick, setBoardTick] = useState(0);
   const [openLot, setOpenLot] = useState<string | null>(null);
   const [openPo, setOpenPo] = useState<string | null>(null);
   /** Record currently being edited or created by hand. */
@@ -154,8 +159,21 @@ export default function DashboardPage() {
     setLoading(true);
     setLoadError(null);
     try {
+      // The floor board can point at a day outside the analytics range, and a
+      // lot queued days ago can still be running today, so the fetch always
+      // reaches a week either side of the board's day.
+      const shift = (d: string, days: number) => {
+        const t = new Date(`${d}T12:00:00Z`);
+        t.setUTCDate(t.getUTCDate() + days);
+        return t.toISOString().slice(0, 10);
+      };
+      const fetchFrom = [from, shift(boardDay, -7)].sort()[0];
+      const fetchTo = [to, boardDay].sort().reverse()[0];
+
       const res = await fetch(
-        `/api/analytics?from=${from}&to=${to}&deleted=${showDeleted ? 1 : 0}`,
+        `/api/analytics?from=${fetchFrom}&to=${fetchTo}&deleted=${
+          showDeleted ? 1 : 0
+        }`,
         { headers: { "x-apt-key": key } }
       );
       if (res.status === 401) {
@@ -170,7 +188,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [key, from, to, showDeleted]);
+  }, [key, from, to, showDeleted, boardDay]);
 
   useEffect(() => {
     void load();
@@ -233,6 +251,9 @@ export default function DashboardPage() {
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
+      // The fetch reaches wider than the chosen range so the floor board has
+      // context, so the range is enforced here for the analytics below it.
+      if (r.log.log_date < from || r.log.log_date > to) return false;
       if (area && r.step?.area !== area) return false;
       if (stepId && r.log.step_id !== stepId) return false;
       if (operator) {
@@ -250,7 +271,18 @@ export default function DashboardPage() {
       if (hideIncomplete && r.incomplete) return false;
       return true;
     });
-  }, [rows, area, stepId, operator, blast, lotSearch, onlyFlagged, hideIncomplete]);
+  }, [
+    rows,
+    from,
+    to,
+    area,
+    stepId,
+    operator,
+    blast,
+    lotSearch,
+    onlyFlagged,
+    hideIncomplete,
+  ]);
 
   /**
    * The same filters the lots obey. These were being ignored, so the purchase
@@ -258,6 +290,7 @@ export default function DashboardPage() {
    */
   const filteredPos = useMemo(() => {
     return poRows.filter((r) => {
+      if (r.po.log_date < from || r.po.log_date > to) return false;
       if (area && r.step?.area !== area) return false;
       if (stepId && r.po.step_id !== stepId) return false;
       if (lotSearch && !r.po.po_number.includes(lotSearch.trim().toUpperCase()))
@@ -271,7 +304,7 @@ export default function DashboardPage() {
       if (hideIncomplete && r.running) return false;
       return true;
     });
-  }, [poRows, area, stepId, lotSearch, operator, hideIncomplete]);
+  }, [poRows, from, to, area, stepId, lotSearch, operator, hideIncomplete]);
 
   const byStep = useMemo(() => bucketBy(filtered, "step"), [filtered]);
   const byArea = useMemo(() => bucketBy(filtered, "area"), [filtered]);
@@ -436,6 +469,37 @@ export default function DashboardPage() {
         poStationNames
       ),
     [poRows, floorDay, rules, includeOffShift, poStationNames]
+  );
+
+  /**
+   * The board reads from the unfiltered set on purpose. Someone glancing at a
+   * wall display should see the whole floor, not whatever filters happen to be
+   * set on the analytics below it.
+   */
+  const boardNow = useMemo(() => {
+    void boardTick;
+    return new Date().toISOString();
+  }, [boardTick]);
+
+  const lotQueueBoard = useMemo(
+    () =>
+      lotBoard(rows, data?.steps ?? [], boardDay, "queue", rules, includeOffShift, boardNow),
+    [rows, data, boardDay, rules, includeOffShift, boardNow]
+  );
+  const lotProcessBoard = useMemo(
+    () =>
+      lotBoard(rows, data?.steps ?? [], boardDay, "process", rules, includeOffShift, boardNow),
+    [rows, data, boardDay, rules, includeOffShift, boardNow]
+  );
+  const poQueueBoard = useMemo(
+    () =>
+      poBoard(poRows, data?.steps ?? [], boardDay, "queue", rules, includeOffShift, boardNow),
+    [poRows, data, boardDay, rules, includeOffShift, boardNow]
+  );
+  const poProcessBoard = useMemo(
+    () =>
+      poBoard(poRows, data?.steps ?? [], boardDay, "process", rules, includeOffShift, boardNow),
+    [poRows, data, boardDay, rules, includeOffShift, boardNow]
   );
 
   const controlProps = { metric, setMetric, agg, setAgg };

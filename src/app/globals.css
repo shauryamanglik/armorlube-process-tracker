@@ -1961,3 +1961,352 @@ tbody tr.clickable:hover {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ============================================================
+   Live floor board
+   Height is managed explicitly at every level. Flex and grid
+   children default to a minimum size of their content, which is
+   what makes panels overflow their parent and overlap, so every
+   container below sets min-height: 0.
+   ============================================================ */
+
+.lb-wrap {
+  padding: 16px;
+}
+
+.lb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.lb-h {
+  font-size: 16px;
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.lb-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.lb-key {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.lb-key.live-key {
+  background: var(--info);
+}
+
+.lb-key.done-key {
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+
+.lb-legend .lb-key + .lb-key {
+  margin-left: 10px;
+}
+
+/* stacked boards */
+.lb-stack {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+}
+
+.lb-stack.two {
+  grid-template-rows: 1fr 1fr;
+}
+
+.lb-stack.one {
+  grid-template-rows: 1fr;
+}
+
+.lb-board {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.lb-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin-bottom: 10px;
+  flex: none;
+}
+
+.lb-title .hint {
+  font-size: 12px;
+}
+
+.lb-cols {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lb-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  padding: 9px;
+}
+
+.lb-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex: none;
+  min-width: 0;
+}
+
+.lb-area {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  flex: none;
+}
+
+.lb-count.live {
+  background: rgba(76, 141, 246, 0.16);
+  color: #8ab4ff;
+}
+
+.lb-count.done {
+  background: var(--surface-3);
+  color: var(--text-faint);
+}
+
+.lb-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--info);
+  animation: lb-blink 2s ease-in-out infinite;
+}
+
+@keyframes lb-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* the bars fill whatever height is left, however many there are */
+.lb-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.lb-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 0;
+  /* shrink as more arrive, but never below readable */
+  min-height: 26px;
+  max-height: 46px;
+  padding: 0 9px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+/* the coloured portion is the measure, the text sits above it */
+.lb-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+  transition: width 0.4s ease;
+}
+
+.lb-row.queue .lb-fill {
+  background: rgba(240, 169, 46, 0.34);
+}
+
+.lb-row.process .lb-fill {
+  background: rgba(76, 141, 246, 0.34);
+}
+
+.lb-row.live.queue {
+  box-shadow: inset 0 0 0 1.5px rgba(240, 169, 46, 0.75);
+}
+
+.lb-row.live.queue .lb-fill {
+  background: rgba(240, 169, 46, 0.62);
+}
+
+.lb-row.live.process {
+  box-shadow: inset 0 0 0 1.5px rgba(76, 141, 246, 0.8);
+}
+
+.lb-row.live.process .lb-fill {
+  background: rgba(76, 141, 246, 0.62);
+}
+
+.lb-row.done {
+  opacity: 0.72;
+}
+
+.lb-row.done .lb-fill {
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* text always sits above the bar, so the time is readable at any length */
+.lb-ref,
+.lb-dur {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+.lb-ref {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lb-dur {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.lb-row.live .lb-dur {
+  color: var(--text);
+}
+
+.lb-empty {
+  display: grid;
+  place-items: center;
+  flex: 1 1 auto;
+  font-size: 12px;
+  color: var(--text-faint);
+  min-height: 40px;
+}
+
+/* ---------- full screen wall mode ---------- */
+
+.lb-full {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: var(--bg);
+  display: flex;
+  overflow: hidden;
+}
+
+.lb-full-inner {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  padding: clamp(12px, 2vh, 26px) clamp(12px, 2vw, 30px);
+  padding-top: max(clamp(12px, 2vh, 26px), env(safe-area-inset-top, 0px));
+  padding-bottom: max(clamp(12px, 2vh, 26px), env(safe-area-inset-bottom, 0px));
+  gap: 10px;
+}
+
+/* header and legend take only what they need, boards take the rest */
+.lb-full-inner .lb-head,
+.lb-full-inner .lb-legend {
+  flex: none;
+  margin-bottom: 0;
+}
+
+.lb-full-inner .lb-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.lb-full-inner .lb-h {
+  font-size: clamp(18px, 2.2vw, 30px);
+}
+
+.lb-full-inner .lb-area {
+  font-size: clamp(13px, 1.15vw, 20px);
+}
+
+.lb-full-inner .lb-title {
+  font-size: clamp(14px, 1.2vw, 20px);
+}
+
+.lb-full-inner .lb-row {
+  min-height: clamp(28px, 4.4vh, 62px);
+  max-height: none;
+}
+
+.lb-full-inner .lb-ref.big,
+.lb-full-inner .lb-dur.big {
+  font-size: clamp(13px, 1.15vw, 22px);
+}
+
+.lb-full-inner .lb-count {
+  font-size: clamp(11px, 0.85vw, 15px);
+}
+
+/* On a narrow screen five columns cannot stay readable, so the board
+   scrolls sideways rather than crushing every column into nothing. */
+@media (max-width: 760px) {
+  .lb-cols {
+    overflow-x: auto;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 1fr);
+  }
+}
+
+.spin-slow {
+  animation: spin 6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

@@ -9,6 +9,33 @@ import type { Segment, SegmentKind, Step, WorkRules } from "./types";
  * board covering a week tells you nothing about what to go and look at.
  */
 
+/**
+ * What each area is called on the board. The database stores "Area 1" and so
+ * on, which means nothing to someone walking past a screen, so the board uses
+ * the name of the work that happens there.
+ */
+export const AREA_LABELS: Record<string, string> = {
+  "Area 1": "Degreasing",
+  "Area 2": "Blasting",
+  "Area 3": "Washing",
+  "Area 4": "Coating",
+  "Area 5": "Defixturing & Inspection",
+};
+
+/** What each purchase order station is called on the board. */
+export const STATION_LABELS: Record<string, string> = {
+  "Incoming Inspection": "Incoming Inspection",
+  "Oil/Shipping": "Final Inspection",
+};
+
+export function areaLabel(area: string): string {
+  return AREA_LABELS[area] ?? area;
+}
+
+export function stationLabel(step: string): string {
+  return STATION_LABELS[step] ?? step;
+}
+
 export type LiveBar = {
   /** Lot number or PO number. */
   ref: string;
@@ -130,7 +157,7 @@ export function lotBoard(
       return b.ms - a.ms;
     });
     return {
-      area,
+      area: areaLabel(area),
       bars,
       liveCount: bars.filter((b) => b.live).length,
       doneCount: bars.filter((b) => !b.live).length,
@@ -192,7 +219,7 @@ export function poBoard(
       }
     );
     return {
-      area: st.step_name,
+      area: stationLabel(st.step_name),
       bars,
       liveCount: bars.filter((b) => b.live).length,
       doneCount: bars.filter((b) => !b.live).length,
