@@ -69,6 +69,9 @@ export function FloorColumnSet({
         <span className="floor-legend">
           <span className={`lg-dot ${kind} live`} /> On it now
           <span className={`lg-dot ${kind} done`} /> Moved on
+          <span className="hint" style={{ marginLeft: 10 }}>
+            tap a bar for its history
+          </span>
         </span>
       </div>
 

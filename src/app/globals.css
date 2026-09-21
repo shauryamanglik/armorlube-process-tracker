@@ -1714,13 +1714,26 @@ tbody tr.clickable:hover {
 .floor-shell.full .floor-bars {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  /* Bars stretch to fill the column, but once there are more than will fit
+     at a readable height the column scrolls instead of cutting them off. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .floor-shell.full .floor-bar {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   height: auto !important;
-  min-height: 20px;
+  min-height: 38px;
+}
+
+/* a visible hint that a column holds more than is on screen */
+.floor-shell.full .floor-bars::-webkit-scrollbar {
+  width: 8px;
+}
+
+.floor-shell.full .floor-bars::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
 }
 
 .floor-top {
@@ -1810,17 +1823,17 @@ tbody tr.clickable:hover {
   background: #f0a92e;
 }
 
-.lg-dot.queue.done {
-  background: rgba(240, 169, 46, 0.28);
+.lg-dot.queue.done,
+.lg-dot.process.done {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .lg-dot.process.live {
   background: #4c8df6;
 }
 
-.lg-dot.process.done {
-  background: rgba(76, 141, 246, 0.28);
-}
+
 
 .floor-cols {
   display: grid;
@@ -1933,20 +1946,38 @@ tbody tr.clickable:hover {
   border-radius: 4px;
 }
 
+/* Running work carries the colour of its phase, dimmed enough that white
+   text reads on it, with a full strength cap and outline for punch. */
 .floor-set.queue .floor-bar.live .fb-fill {
-  background: #f0a92e;
+  background: rgba(240, 169, 46, 0.58);
 }
 
-.floor-set.queue .floor-bar.done .fb-fill {
-  background: rgba(240, 169, 46, 0.26);
+.floor-set.queue .floor-bar.live {
+  box-shadow: inset 0 0 0 1.5px rgba(240, 169, 46, 0.9),
+    inset 5px 0 0 #f0a92e;
 }
 
 .floor-set.process .floor-bar.live .fb-fill {
-  background: #4c8df6;
+  background: rgba(76, 141, 246, 0.58);
 }
 
-.floor-set.process .floor-bar.done .fb-fill {
-  background: rgba(76, 141, 246, 0.26);
+.floor-set.process .floor-bar.live {
+  box-shadow: inset 0 0 0 1.5px rgba(76, 141, 246, 0.9),
+    inset 5px 0 0 #4c8df6;
+}
+
+/* Finished work carries no colour at all. Coloured means it is happening
+   now, grey means it is done, which is far harder to misread than two
+   shades of the same hue. */
+.floor-set.queue .floor-bar.done .fb-fill,
+.floor-set.process .floor-bar.done .fb-fill,
+.floor-bar.done .fb-fill {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.floor-bar.done {
+  box-shadow: inset 0 0 0 1px var(--line);
+  opacity: 1;
 }
 
 /* a running bar breathes, so movement draws the eye on a wall display */
@@ -1973,16 +2004,23 @@ tbody tr.clickable:hover {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
+/* The label can sit over the coloured fill or over the empty track behind
+   it, so it is always light with a dark shadow rather than depending on
+   which half of the bar it lands on. */
 .floor-bar.live .fb-label,
 .floor-bar.live .fb-time {
-  color: #0d0d0e;
-  text-shadow: none;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
-.floor-bar.done .fb-label,
+.floor-bar.done .fb-label {
+  color: #c6c6cd;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
 .floor-bar.done .fb-time {
-  color: var(--text-dim);
-  text-shadow: none;
+  color: #9a9aa2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .fb-time {

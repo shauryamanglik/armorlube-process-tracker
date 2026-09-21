@@ -79,6 +79,7 @@ import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
 import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock";
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
+import FullscreenPortal from "@/components/FullscreenPortal";
 import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
 import FloorBoard from "@/components/FloorBoard";
 import { supabase } from "@/lib/supabase";
@@ -1816,6 +1817,7 @@ export default function DashboardPage() {
           const st = statuses.find((x) => x.lot === openLot);
           if (!st) return null;
           return (
+            <FullscreenPortal>
             <LotDetail
               status={st}
               operators={data?.operators ?? []}
@@ -1828,6 +1830,7 @@ export default function DashboardPage() {
               onRestore={(id) => void restoreLog(id)}
               onAddStep={addSkippedStep}
             />
+            </FullscreenPortal>
           );
         })()}
 
@@ -1835,6 +1838,7 @@ export default function DashboardPage() {
           const st = poStatusRows.find((x) => x.po === openPo);
           if (!st) return null;
           return (
+            <FullscreenPortal>
             <PoDetail
               status={st}
               operators={data?.operators ?? []}
@@ -1847,10 +1851,12 @@ export default function DashboardPage() {
               onRestore={(id) => void restorePo(id)}
               onAddStation={addPoStation}
             />
+            </FullscreenPortal>
           );
         })()}
 
       {editing && (
+          <FullscreenPortal>
           <RecordEditor
             target={editing}
             operators={data?.operators ?? []}
@@ -1860,6 +1866,7 @@ export default function DashboardPage() {
               await load();
             }}
           />
+          </FullscreenPortal>
         )}
 
         <p className="hint" style={{ paddingBottom: 30 }}>
