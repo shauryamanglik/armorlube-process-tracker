@@ -38,7 +38,10 @@ import {
   poThroughputByDay,
   poWaitShare,
   slowestLots,
+  floorView,
+  floorViewPo,
   lotStatuses,
+  padGroups,
   poStatuses,
   slowestPos,
   waitShare,
@@ -58,6 +61,7 @@ import {
   DEFAULT_RULES,
   formatDuration,
   formatStamp,
+  todayInPhoenix,
   toHours,
 } from "@/lib/time";
 import { crewOf } from "@/lib/segments";
@@ -75,6 +79,7 @@ import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
 import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
+import FloorBoard from "@/components/FloorBoard";
 import { supabase } from "@/lib/supabase";
 
 const KEY_STORE = "apt.key.v1";
@@ -124,6 +129,8 @@ export default function DashboardPage() {
   const [openPo, setOpenPo] = useState<string | null>(null);
   /** Record currently being edited or created by hand. */
   const [editing, setEditing] = useState<EditorTarget | null>(null);
+  /** Which day the live board shows. Today unless someone changes it. */
+  const [floorDay, setFloorDay] = useState(() => todayInPhoenix());
   /** Narrow the lots list to live, completed, or those that skipped a step. */
   const [lotView, setLotView] = useState<"all" | "live" | "done" | "skipped">(
     "all"
@@ -372,6 +379,65 @@ export default function DashboardPage() {
     setEditing({ mode: "create", kind: "log", step, lotId: lot, passNo: pass });
   }
 
+  // The live board deliberately ignores the date range and step filters,
+  // because it answers "what is on the floor right now", not "what happened
+  // over this period". Area and operator filters would only hide work that is
+  // genuinely out there.
+  const areaNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (data?.steps ?? [])
+            .filter((x) => x.tracks_lots !== false && x.active !== false)
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map((x) => x.area)
+        )
+      ),
+    [data]
+  );
+
+  const poStationNames = useMemo(
+    () =>
+      (data?.steps ?? [])
+        .filter((x) => x.tracks_po && x.active !== false)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((x) => x.step_name),
+    [data]
+  );
+
+  const floorQueue = useMemo(
+    () =>
+      padGroups(
+        floorView(rows, "queue", floorDay, rules, includeOffShift, "area"),
+        areaNames
+      ),
+    [rows, floorDay, rules, includeOffShift, areaNames]
+  );
+  const floorProcess = useMemo(
+    () =>
+      padGroups(
+        floorView(rows, "process", floorDay, rules, includeOffShift, "area"),
+        areaNames
+      ),
+    [rows, floorDay, rules, includeOffShift, areaNames]
+  );
+  const floorPoQueue = useMemo(
+    () =>
+      padGroups(
+        floorViewPo(poRows, "queue", floorDay, rules, includeOffShift),
+        poStationNames
+      ),
+    [poRows, floorDay, rules, includeOffShift, poStationNames]
+  );
+  const floorPoProcess = useMemo(
+    () =>
+      padGroups(
+        floorViewPo(poRows, "process", floorDay, rules, includeOffShift),
+        poStationNames
+      ),
+    [poRows, floorDay, rules, includeOffShift, poStationNames]
+  );
+
   const controlProps = { metric, setMetric, agg, setAgg };
 
   /**
@@ -578,6 +644,36 @@ export default function DashboardPage() {
       </header>
 
       <main className="shell stack">
+        {/* live floor, above everything else, because it answers the
+            question people walk up to the screen with */}
+        <FloorBoard
+          label="On the floor now, lots"
+          queueGroups={floorQueue}
+          processGroups={floorProcess}
+          day={floorDay}
+          onDayChange={setFloorDay}
+          onRefresh={() => void load()}
+          onItemClick={(ref) => {
+            setOpenLot(ref);
+            setTab("lots");
+          }}
+        />
+
+        {poStationNames.length > 0 && (
+          <FloorBoard
+            label="On the floor now, purchase orders"
+            queueGroups={floorPoQueue}
+            processGroups={floorPoProcess}
+            day={floorDay}
+            onDayChange={setFloorDay}
+            onRefresh={() => void load()}
+            onItemClick={(ref) => {
+              setOpenPo(ref);
+              setTab("bypo");
+            }}
+          />
+        )}
+
         {/* filters */}
         <section className="panel stack">
           <div className="row">

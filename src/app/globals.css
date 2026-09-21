@@ -1650,3 +1650,314 @@ tbody tr.clickable:hover {
   background: var(--surface-2);
   padding: 14px;
 }
+
+/* ============================================================
+   Live floor board
+   Built to be read from across a room, and to fill a wall
+   display when put into full screen.
+   ============================================================ */
+
+.floor-shell {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.floor-shell.full {
+  border-radius: 0;
+  border: none;
+  padding: 22px 26px;
+  height: 100vh;
+  background: var(--bg);
+}
+
+.floor-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.floor-title {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.floor-shell.full .floor-title {
+  font-size: 26px;
+}
+
+.floor-shell.full .hint {
+  font-size: 14px;
+}
+
+.floor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+}
+
+.floor-set {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+
+.floor-set-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.floor-set-head strong {
+  font-size: 15px;
+}
+
+.floor-shell.full .floor-set-head strong {
+  font-size: 20px;
+}
+
+.floor-set.queue .phase-mark {
+  background: rgba(240, 169, 46, 0.14);
+  color: var(--hold);
+}
+
+.floor-set.process .phase-mark {
+  background: rgba(76, 141, 246, 0.14);
+  color: var(--info);
+}
+
+.floor-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.lg-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-left: 8px;
+}
+
+.lg-dot.queue.live {
+  background: #f0a92e;
+}
+
+.lg-dot.queue.done {
+  background: rgba(240, 169, 46, 0.28);
+}
+
+.lg-dot.process.live {
+  background: #4c8df6;
+}
+
+.lg-dot.process.done {
+  background: rgba(76, 141, 246, 0.28);
+}
+
+.floor-cols {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+
+.floor-col {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.floor-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 7px;
+}
+
+.fc-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floor-shell.full .fc-name {
+  font-size: 17px;
+  color: var(--text);
+}
+
+.fc-count {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+
+.fc-live,
+.fc-done {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.floor-shell.full .fc-live,
+.floor-shell.full .fc-done {
+  font-size: 14px;
+  padding: 2px 10px;
+}
+
+.fc-live {
+  background: rgba(47, 191, 113, 0.16);
+  color: var(--run);
+}
+
+.fc-done {
+  background: var(--surface-3);
+  color: var(--text-faint);
+}
+
+.floor-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+.floor-bar {
+  position: relative;
+  width: 100%;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 6px;
+  flex: none;
+  text-align: left;
+  transition: filter 0.12s ease;
+}
+
+.floor-bar:hover {
+  filter: brightness(1.2);
+}
+
+.fb-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+}
+
+.floor-set.queue .floor-bar.live .fb-fill {
+  background: #f0a92e;
+}
+
+.floor-set.queue .floor-bar.done .fb-fill {
+  background: rgba(240, 169, 46, 0.26);
+}
+
+.floor-set.process .floor-bar.live .fb-fill {
+  background: #4c8df6;
+}
+
+.floor-set.process .floor-bar.done .fb-fill {
+  background: rgba(76, 141, 246, 0.26);
+}
+
+/* a running bar breathes, so movement draws the eye on a wall display */
+.floor-bar.live .fb-fill {
+  animation: floorPulse 2.6s ease-in-out infinite;
+}
+
+@keyframes floorPulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.22);
+  }
+}
+
+.fb-label,
+.fb-time {
+  position: relative;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.floor-bar.live .fb-label,
+.floor-bar.live .fb-time {
+  color: #0d0d0e;
+  text-shadow: none;
+}
+
+.floor-bar.done .fb-label,
+.floor-bar.done .fb-time {
+  color: var(--text-dim);
+  text-shadow: none;
+}
+
+.fb-time {
+  margin-left: auto;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.floor-shell.full .fb-label,
+.floor-shell.full .fb-time {
+  font-size: 17px;
+}
+
+.floor-empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 14px 4px;
+}
+
+@media (max-width: 900px) {
+  .floor-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .floor-cols {
+    grid-template-columns: 1fr !important;
+  }
+}

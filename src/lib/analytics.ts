@@ -1,6 +1,20 @@
-import { isoToPhoenixDate, measureSpan, spanValue, toHours, type Span } from "./time";
+import {
+  isoToPhoenixDate,
+  measureSpan,
+  phoenixToIso,
+  spanValue,
+  toHours,
+  type Span,
+} from "./time";
 import { byParent, crewOf, interruptions, rollup } from "./segments";
-import type { LogRow, PoLog, Segment, Step, WorkRules } from "./types";
+import type {
+  LogRow,
+  PoLog,
+  Segment,
+  SegmentKind,
+  Step,
+  WorkRules,
+} from "./types";
 
 export type Enriched = {
   log: LogRow;
@@ -1032,4 +1046,159 @@ export function warningsFor(r: Enriched): string[] {
     out.push("Blast type was never recorded");
   if (r.log.deleted_at) out.push("This record was deleted");
   return out;
+}
+
+// ============================================================
+// Live floor view
+// ============================================================
+
+export type FloorItem = {
+  /** Lot number or PO number. */
+  ref: string;
+  /** Step or station it is sitting at. */
+  step: string;
+  /** How long it has been there, or how long it was there. */
+  ms: number;
+  running: boolean;
+  startedAt: string;
+  endedAt: string | null;
+  crew: string[];
+};
+
+export type FloorGroup = {
+  name: string;
+  items: FloorItem[];
+  runningCount: number;
+  doneCount: number;
+};
+
+/** Phoenix day bounds as real instants. */
+function dayBounds(day: string): { from: number; to: number } {
+  const from = new Date(phoenixToIso(day, "00:00")).getTime();
+  return { from, to: from + 24 * 3600 * 1000 };
+}
+
+/**
+ * A stretch belongs to a day if any part of it happened that day. A lot that
+ * queued overnight still matters this morning, so it is shown rather than
+ * dropped for having started yesterday.
+ */
+function touchesDay(seg: Segment, from: number, to: number, now: number): boolean {
+  const s = new Date(seg.started_at).getTime();
+  const e = seg.ended_at ? new Date(seg.ended_at).getTime() : now;
+  return s < to && e >= from;
+}
+
+/**
+ * What is on the floor, grouped for the live board. Each item is one stretch,
+ * so a lot sent back to queue twice shows twice, which is the truth of what
+ * the floor looks like.
+ */
+export function floorView(
+  rows: Enriched[],
+  kind: SegmentKind,
+  day: string,
+  rules: WorkRules,
+  includeOffShift: boolean,
+  groupBy: "area" | "step" = "area"
+): FloorGroup[] {
+  const { from, to } = dayBounds(day);
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const groups = new Map<string, FloorItem[]>();
+
+  for (const r of rows) {
+    if (!r.step) continue;
+    const key = groupBy === "area" ? r.step.area : r.step.step_name;
+
+    for (const seg of r.segments) {
+      if (seg.kind !== kind) continue;
+      if (!touchesDay(seg, from, to, now)) continue;
+
+      const span = measureSpan(seg.started_at, seg.ended_at ?? nowIso, rules);
+      if (!span) continue;
+
+      const list = groups.get(key) ?? [];
+      list.push({
+        ref: r.log.lot_id,
+        step: r.step.step_name,
+        ms: includeOffShift ? span.rawMs : span.businessMs,
+        running: !seg.ended_at,
+        startedAt: seg.started_at,
+        endedAt: seg.ended_at,
+        crew: [...new Set([...(seg.started_by ?? []), ...(seg.ended_by ?? [])])],
+      });
+      groups.set(key, list);
+    }
+  }
+
+  return Array.from(groups.entries())
+    .map(([name, items]) => ({
+      name,
+      // Running first, then longest, so the things that need attention are
+      // at the top of every column.
+      items: items.sort((a, b) => {
+        if (a.running !== b.running) return a.running ? -1 : 1;
+        return b.ms - a.ms;
+      }),
+      runningCount: items.filter((i) => i.running).length,
+      doneCount: items.filter((i) => !i.running).length,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The same board for purchase orders, grouped by station. */
+export function floorViewPo(
+  rows: EnrichedPo[],
+  kind: SegmentKind,
+  day: string,
+  rules: WorkRules,
+  includeOffShift: boolean
+): FloorGroup[] {
+  const { from, to } = dayBounds(day);
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const groups = new Map<string, FloorItem[]>();
+
+  for (const r of rows) {
+    if (!r.step) continue;
+    for (const seg of r.segments) {
+      if (seg.kind !== kind) continue;
+      if (!touchesDay(seg, from, to, now)) continue;
+      const span = measureSpan(seg.started_at, seg.ended_at ?? nowIso, rules);
+      if (!span) continue;
+      const list = groups.get(r.step.step_name) ?? [];
+      list.push({
+        ref: r.po.po_number,
+        step: r.step.step_name,
+        ms: includeOffShift ? span.rawMs : span.businessMs,
+        running: !seg.ended_at,
+        startedAt: seg.started_at,
+        endedAt: seg.ended_at,
+        crew: [...new Set([...(seg.started_by ?? []), ...(seg.ended_by ?? [])])],
+      });
+      groups.set(r.step.step_name, list);
+    }
+  }
+
+  return Array.from(groups.entries())
+    .map(([name, items]) => ({
+      name,
+      items: items.sort((a, b) => {
+        if (a.running !== b.running) return a.running ? -1 : 1;
+        return b.ms - a.ms;
+      }),
+      runningCount: items.filter((i) => i.running).length,
+      doneCount: items.filter((i) => !i.running).length,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Make sure every area shows, even the empty ones, so the board keeps shape. */
+export function padGroups(groups: FloorGroup[], names: string[]): FloorGroup[] {
+  const have = new Map(groups.map((g) => [g.name, g]));
+  return names.map(
+    (n) =>
+      have.get(n) ?? { name: n, items: [], runningCount: 0, doneCount: 0 }
+  );
 }
