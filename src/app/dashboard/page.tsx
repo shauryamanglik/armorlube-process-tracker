@@ -23,6 +23,7 @@ import {
   Users,
 } from "lucide-react";
 import {
+  areaLabel,
   bucketBy,
   dailySeries,
   dailySeriesPo,
@@ -78,8 +79,6 @@ import { LoadBars, SplitBars, StepBars, Trend } from "@/components/Charts";
 import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock";
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
-import LiveBoard from "@/components/LiveBoard";
-import { lotBoard, poBoard } from "@/lib/liveboard";
 import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
 import FloorBoard from "@/components/FloorBoard";
 import { supabase } from "@/lib/supabase";
@@ -127,9 +126,6 @@ export default function DashboardPage() {
     "charts" | "raw" | "lots" | "pos" | "bypo" | "settings"
   >("charts");
   /** Which lot or order the detail drawer is showing. */
-  /** The floor board is a single day, and today is what matters on a wall. */
-  const [boardDay, setBoardDay] = useState(() => todayInPhoenix());
-  const [boardTick, setBoardTick] = useState(0);
   const [openLot, setOpenLot] = useState<string | null>(null);
   const [openPo, setOpenPo] = useState<string | null>(null);
   /** Record currently being edited or created by hand. */
@@ -167,8 +163,8 @@ export default function DashboardPage() {
         t.setUTCDate(t.getUTCDate() + days);
         return t.toISOString().slice(0, 10);
       };
-      const fetchFrom = [from, shift(boardDay, -7)].sort()[0];
-      const fetchTo = [to, boardDay].sort().reverse()[0];
+      const fetchFrom = [from, shift(floorDay, -7)].sort()[0];
+      const fetchTo = [to, floorDay].sort().reverse()[0];
 
       const res = await fetch(
         `/api/analytics?from=${fetchFrom}&to=${fetchTo}&deleted=${
@@ -188,7 +184,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [key, from, to, showDeleted, boardDay]);
+  }, [key, from, to, showDeleted, floorDay]);
 
   useEffect(() => {
     void load();
@@ -423,7 +419,7 @@ export default function DashboardPage() {
           (data?.steps ?? [])
             .filter((x) => x.tracks_lots !== false && x.active !== false)
             .sort((a, b) => a.sort_order - b.sort_order)
-            .map((x) => x.area)
+            .map((x) => areaLabel(x.area))
         )
       ),
     [data]
@@ -469,37 +465,6 @@ export default function DashboardPage() {
         poStationNames
       ),
     [poRows, floorDay, rules, includeOffShift, poStationNames]
-  );
-
-  /**
-   * The board reads from the unfiltered set on purpose. Someone glancing at a
-   * wall display should see the whole floor, not whatever filters happen to be
-   * set on the analytics below it.
-   */
-  const boardNow = useMemo(() => {
-    void boardTick;
-    return new Date().toISOString();
-  }, [boardTick]);
-
-  const lotQueueBoard = useMemo(
-    () =>
-      lotBoard(rows, data?.steps ?? [], boardDay, "queue", rules, includeOffShift, boardNow),
-    [rows, data, boardDay, rules, includeOffShift, boardNow]
-  );
-  const lotProcessBoard = useMemo(
-    () =>
-      lotBoard(rows, data?.steps ?? [], boardDay, "process", rules, includeOffShift, boardNow),
-    [rows, data, boardDay, rules, includeOffShift, boardNow]
-  );
-  const poQueueBoard = useMemo(
-    () =>
-      poBoard(poRows, data?.steps ?? [], boardDay, "queue", rules, includeOffShift, boardNow),
-    [poRows, data, boardDay, rules, includeOffShift, boardNow]
-  );
-  const poProcessBoard = useMemo(
-    () =>
-      poBoard(poRows, data?.steps ?? [], boardDay, "process", rules, includeOffShift, boardNow),
-    [poRows, data, boardDay, rules, includeOffShift, boardNow]
   );
 
   const controlProps = { metric, setMetric, agg, setAgg };

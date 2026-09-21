@@ -51,7 +51,10 @@ export function FloorColumnSet({
 }: Props) {
   const maxCount = Math.max(1, ...groups.map((g) => g.items.length));
   const h = barHeight(maxCount, Boolean(big));
-  const showTime = h >= (big ? 30 : 20);
+  // On a wall display the duration is the whole point, so it stays unless the
+  // bar is genuinely too thin to read. In fullscreen the bars stretch to fill
+  // the column, so there is almost always room.
+  const showTime = big || h >= 18;
   const running = groups.reduce((a, g) => a + g.runningCount, 0);
 
   return (

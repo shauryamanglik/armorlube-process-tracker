@@ -1670,9 +1670,57 @@ tbody tr.clickable:hover {
 .floor-shell.full {
   border-radius: 0;
   border: none;
-  padding: 22px 26px;
-  height: 100vh;
+  padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 28px);
+  /* dvh rather than vh, so browser chrome on an iPad cannot push the
+     bottom of the board off screen */
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  /* nothing may spill out of the shell, which is what caused the overlap */
+  overflow: hidden;
   background: var(--bg);
+  padding-top: max(clamp(12px, 2vh, 24px), env(safe-area-inset-top, 0px));
+  padding-bottom: max(clamp(12px, 2vh, 24px), env(safe-area-inset-bottom, 0px));
+}
+
+/* Header takes what it needs, the boards take everything else. */
+.floor-shell.full > .floor-top {
+  flex: none;
+}
+
+.floor-shell.full .floor-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.floor-shell.full .floor-set {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.floor-shell.full .floor-cols {
+  min-height: 0;
+}
+
+.floor-shell.full .floor-col {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* In fullscreen the bars divide the height they are given instead of
+   keeping a fixed pixel height, which is what made tall columns run off
+   the bottom of the screen. The !important is needed because the row
+   height is set inline for the normal, non-fullscreen view. */
+.floor-shell.full .floor-bars {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.floor-shell.full .floor-bar {
+  flex: 1 1 0;
+  height: auto !important;
+  min-height: 20px;
 }
 
 .floor-top {
@@ -1851,6 +1899,11 @@ tbody tr.clickable:hover {
   flex-direction: column;
   gap: 4px;
   min-height: 0;
+  flex: 1 1 auto;
+  /* if a column somehow overflows, it scrolls rather than covering the
+     column beside it */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .floor-bar {

@@ -1094,6 +1094,22 @@ function touchesDay(seg: Segment, from: number, to: number, now: number): boolea
  * so a lot sent back to queue twice shows twice, which is the truth of what
  * the floor looks like.
  */
+/**
+ * "Area 1" means nothing to someone walking past a wall display, so the floor
+ * board labels each area with the work that happens there.
+ */
+export const AREA_LABELS: Record<string, string> = {
+  "Area 1": "Degreasing",
+  "Area 2": "Blasting",
+  "Area 3": "Washing",
+  "Area 4": "Coating",
+  "Area 5": "Defixturing & Inspection",
+};
+
+export function areaLabel(area: string): string {
+  return AREA_LABELS[area] ?? area;
+}
+
 export function floorView(
   rows: Enriched[],
   kind: SegmentKind,
@@ -1109,7 +1125,8 @@ export function floorView(
 
   for (const r of rows) {
     if (!r.step) continue;
-    const key = groupBy === "area" ? r.step.area : r.step.step_name;
+    const key =
+      groupBy === "area" ? areaLabel(r.step.area) : r.step.step_name;
 
     for (const seg of r.segments) {
       if (seg.kind !== kind) continue;
