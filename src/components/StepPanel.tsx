@@ -16,6 +16,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   exitField,
+  lotSteps,
   LOT_HINT,
   LOT_PATTERN,
   normalizeLot,
@@ -300,8 +301,15 @@ export default function StepPanel({
       const closingExit =
         (exit === "process_out" && action === "process_out") ||
         (exit === "queue_out" && action === "queue_out");
-      if (closingExit && !step.is_final && !openSegment(fresh)) {
-        setRouting({ lot: lotId, stamp: ts });
+      if (closingExit && !openSegment(fresh)) {
+        if (isEndOfLine) {
+          // Nothing downstream takes lots, so this is simply the end. No
+          // routing, no new pass, no going back into the queue.
+          onToast(`Lot ${lotId} is complete and off the line.`);
+          setLotId("");
+        } else {
+          setRouting({ lot: lotId, stamp: ts });
+        }
       }
     } finally {
       setBusy(false);
@@ -314,6 +322,10 @@ export default function StepPanel({
    */
   async function routeTo(choice: RouteChoice) {
     if (!routing) return;
+    if (choice.target.tracks_lots === false) {
+      onToast(`${choice.target.step_name} does not handle lots.`);
+      return;
+    }
     setRouteBusy(true);
     try {
       const target = choice.target;
@@ -507,6 +519,23 @@ export default function StepPanel({
       setBusy(false);
     }
   }
+
+  /**
+   * Where the line actually ends for a lot.
+   *
+   * This used to trust the is_final flag alone. If that flag was not set, the
+   * routing dialog opened at the last step, and choosing anything at or before
+   * it counted as rework: a new pass with a fresh queue stretch. Pressing
+   * process out at defixturing put the lot straight back into the queue.
+   *
+   * A step is the end of the line when nothing after it takes lots, whatever
+   * the flag says.
+   */
+  const laterLotSteps = useMemo(
+    () => lotSteps(allSteps).filter((x) => x.sort_order > step.sort_order),
+    [allSteps, step.sort_order]
+  );
+  const isEndOfLine = step.is_final === true || laterLotSteps.length === 0;
 
   const arrivedFrom = record?.auto_from_step_id
     ? allSteps.find((x) => x.id === record.auto_from_step_id)?.step_name ?? null

@@ -150,7 +150,13 @@ function FloorColumn({
     shown = overflow ? items.slice(0, capacity) : items;
     hidden = items.length - shown.length;
 
-    const maxBarH = 38 * scale;
+    /**
+     * Taller than it needs to be for a laptop, because the board's job is to
+     * be read from across the shop floor. With Live as the default view there
+     * are far fewer bars, so they reach this height rather than being
+     * squeezed, and the text scales up with them.
+     */
+    const maxBarH = 54 * scale;
     const heightFor = (cols: number) => {
       const r = Math.max(1, Math.ceil(shown.length / cols));
       const natural = box.h > 0 ? (box.h - GAP * (r - 1)) / r : minH;
@@ -184,11 +190,11 @@ function FloorColumn({
     barH = bestH;
   }
 
-  const capped = !big || barH >= 38 * scale;
+  const capped = !big || barH >= 54 * scale;
 
   const fontPx = Math.max(
     big ? 8 : 9,
-    Math.min(big ? 17 * scale : 12, barH * (big ? 0.46 : 0.42))
+    Math.min(big ? 24 * scale : 12, barH * (big ? 0.46 : 0.42))
   );
 
   return (
@@ -338,7 +344,7 @@ export default function FloorBoard({
   const [full, setFull] = useState(false);
   /** Show everything that touched the floor today, only what is running, or
    *  only what has already moved on. */
-  const [state, setState] = useState<"both" | "live" | "done">("both");
+  const [state, setState] = useState<"both" | "live" | "done">("live");
   /**
    * Viewing distance is the one thing the board cannot work out for itself,
    * so the size is adjustable and the choice sticks on that display.
