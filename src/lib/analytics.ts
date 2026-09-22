@@ -1068,6 +1068,8 @@ export type FloorItem = {
   processMs: number;
   /** What the lot is doing right now, whichever board this bar is on. */
   nowAt?: string;
+  /** Two stretches were open at once, so one was never closed. */
+  conflicted?: boolean;
 };
 
 export type FloorGroup = {
@@ -1158,6 +1160,9 @@ type Agg = {
   firstStart: string;
   lastEnd: string | null;
   crew: Set<string>;
+  /** Had an open queue and an open process stretch at once, which cannot
+   *  be true on the floor and means a stretch was never closed. */
+  conflicted?: boolean;
 };
 
 type Placed = {
@@ -1228,11 +1233,27 @@ function collect(
   const out: Placed[] = [];
   for (const [column, bucket] of byColumn) {
     for (const agg of bucket.values()) {
-      const status: Placed["status"] = agg.openProcess
-        ? "process"
-        : agg.openQueue
-        ? "queue"
-        : "done";
+      /**
+       * A lot can only be in one place at a time. Two open stretches of
+       * different kinds means one was never closed, which happens when a
+       * close fails while its partner insert succeeds, or when a lot has
+       * records on two passes at the same step. The one that started most
+       * recently is where the lot actually is; the other is an orphan and is
+       * treated as not running so the lot cannot show as live twice.
+       */
+      let status: Placed["status"] = "done";
+      if (agg.openQueue && agg.openProcess) {
+        const queueLater =
+          agg.openQueue.started_at > agg.openProcess.started_at;
+        status = queueLater ? "queue" : "process";
+        agg.conflicted = true;
+        if (queueLater) agg.openProcess = null;
+        else agg.openQueue = null;
+      } else if (agg.openProcess) {
+        status = "process";
+      } else if (agg.openQueue) {
+        status = "queue";
+      }
       out.push({ column, agg, status });
     }
   }
@@ -1270,6 +1291,7 @@ function buildGroups(placed: Placed[], kind: SegmentKind): FloorGroup[] {
       startedAt: open?.started_at ?? a.firstStart,
       endedAt: open ? null : a.lastEnd,
       crew: Array.from(a.crew),
+      conflicted: a.conflicted,
       // Where it actually is, so a moved on bar can say where it went.
       nowAt:
         p.status === "process"
@@ -1423,4 +1445,59 @@ export function staleOpenStretches(
   }
 
   return out.sort((a, b) => b.ageMs - a.ageMs);
+}
+
+
+/**
+ * Records holding a queue stretch and a process stretch open at the same
+ * time. A lot cannot be waiting and being worked at once, so this is always
+ * corruption, left behind by the old queue in bug that opened a second
+ * stretch without closing the first. The board picks the later one so the
+ * lot cannot show as live twice, but the record still needs repairing.
+ */
+export type Conflict = {
+  ref: string;
+  isPo: boolean;
+  step: string;
+  queueSegmentId: string;
+  processSegmentId: string;
+  queueStarted: string;
+  processStarted: string;
+};
+
+export function conflictedRecords(
+  rows: Enriched[],
+  poRows: EnrichedPo[]
+): Conflict[] {
+  const out: Conflict[] = [];
+
+  const scan = (
+    ref: string,
+    isPo: boolean,
+    step: string | undefined,
+    segments: Segment[]
+  ) => {
+    const q = segments.find((s) => s.kind === "queue" && !s.ended_at);
+    const p = segments.find((s) => s.kind === "process" && !s.ended_at);
+    if (!q || !p) return;
+    out.push({
+      ref,
+      isPo,
+      step: step ?? "",
+      queueSegmentId: q.id,
+      processSegmentId: p.id,
+      queueStarted: q.started_at,
+      processStarted: p.started_at,
+    });
+  };
+
+  for (const r of rows) {
+    if (r.log.deleted_at) continue;
+    scan(r.log.lot_id, false, r.step?.step_name, r.segments);
+  }
+  for (const r of poRows) {
+    if (r.po.deleted_at) continue;
+    scan(r.po.po_number, true, r.step?.step_name, r.segments);
+  }
+  return out;
 }

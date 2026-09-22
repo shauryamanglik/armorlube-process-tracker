@@ -2050,15 +2050,19 @@ tbody tr.clickable:hover {
 }
 
 /* the lot number gives way first, the duration never does */
+/* The lot number is the one thing that must always be fully readable, so it
+   never shrinks. If a bar is somehow too narrow, the duration gives way
+   first rather than the identifier. */
 .fb-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .fb-time {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
 }
 
 /* The label can sit over the coloured fill or over the empty track behind

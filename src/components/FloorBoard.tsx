@@ -116,7 +116,13 @@ function FloorColumn({
    * a sub column, which forced more rows, which made the bars shorter and the
    * text smaller. Turning the size up made the board harder to read.
    */
-  const minW = big ? 104 * auto : 84;
+  /**
+   * Wide enough that a full lot number and its duration both fit. A nine
+   * character number in the mono face plus a duration plus padding needs
+   * roughly this much, and anything narrower clipped the lot number, which
+   * is the one thing on the bar that has to be readable.
+   */
+  const minW = big ? 156 * auto : 126;
 
   const maxSub = Math.max(1, Math.floor((box.w + GAP) / (minW + GAP)));
 

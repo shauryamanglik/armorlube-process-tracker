@@ -48,6 +48,7 @@ import {
   padGroups,
   poStatuses,
   staleOpenStretches,
+  conflictedRecords,
   slowestPos,
   waitShare,
   summarisePos,
@@ -514,6 +515,31 @@ export default function DashboardPage() {
   );
   const [closing, setClosing] = useState(false);
 
+  /** Records with both phases open at once, which is always corruption. */
+  const conflicts = useMemo(
+    () => conflictedRecords(rows, poRows),
+    [rows, poRows]
+  );
+
+  /** Close whichever open stretch started earlier, leaving the later one as
+   *  the lot's real state. */
+  async function resolveConflict(c: {
+    queueSegmentId: string;
+    processSegmentId: string;
+    queueStarted: string;
+    processStarted: string;
+  }) {
+    const queueLater = c.queueStarted > c.processStarted;
+    const loserId = queueLater ? c.processSegmentId : c.queueSegmentId;
+    const endAt = queueLater ? c.queueStarted : c.processStarted;
+    const { error } = await supabase
+      .from("segments")
+      .update({ ended_at: endAt })
+      .eq("id", loserId);
+    if (error) setLoadError("Could not repair that record.");
+    else await load();
+  }
+
   /**
    * Close a stretch at a chosen moment. Defaults to the end of the shift on
    * the day it started, which is the most likely truth for a lot someone
@@ -795,6 +821,58 @@ export default function DashboardPage() {
             }
           }}
         />
+
+        {conflicts.length > 0 && (
+          <section className="panel stack stale-panel">
+            <div className="row">
+              <TriangleAlert size={17} color="#e5484d" />
+              <strong style={{ fontSize: 15 }}>
+                {conflicts.length} record{conflicts.length === 1 ? "" : "s"}{" "}
+                waiting and being worked at the same time
+              </strong>
+            </div>
+            <p className="hint" style={{ margin: 0, maxWidth: "80ch" }}>
+              A lot cannot be in the queue and in process at once. These are
+              left over from a bug that opened a second stretch without closing
+              the first. The board picks the later one so nothing shows as live
+              twice, but the record is still wrong. Repairing closes the earlier
+              stretch at the moment the later one began.
+            </p>
+            <div className="table-wrap scroll-y" style={{ maxHeight: 240 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Type</th>
+                    <th>Step</th>
+                    <th>Queue opened</th>
+                    <th>Process opened</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {conflicts.map((c) => (
+                    <tr key={`${c.queueSegmentId}-${c.processSegmentId}`}>
+                      <td className="mono">{c.ref}</td>
+                      <td>{c.isPo ? "Order" : "Lot"}</td>
+                      <td>{c.step}</td>
+                      <td className="mono">{formatStamp(c.queueStarted)}</td>
+                      <td className="mono">{formatStamp(c.processStarted)}</td>
+                      <td>
+                        <button
+                          className="btn sm"
+                          onClick={() => void resolveConflict(c)}
+                        >
+                          Repair
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {stale.length > 0 && (
           <section className="panel stack stale-panel">
