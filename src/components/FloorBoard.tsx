@@ -80,144 +80,140 @@ function useDisplayScale(big: boolean) {
  * even that runs out does anything drop, and running work is sorted first so
  * it is always what survives.
  */
+/**
+ * The layout the whole board shares.
+ *
+ * Every column used to work out its own bar height from its own lot count,
+ * so a quiet column got tall bars and a busy one got thin ones sitting side
+ * by side. One height is chosen for the board instead: the tallest that
+ * every column can hold without overflowing, which is set by the busiest.
+ */
+type Layout = {
+  barH: number;
+  fontPx: number;
+  /** Per column, because a column with more lots needs more sub columns. */
+  subColsFor: (count: number, longestRef: number) => number;
+  rowsFor: (count: number, subCols: number) => number;
+  capacityFor: (longestRef: number) => number;
+};
+
+function useSharedLayout(
+  groups: FloorGroup[],
+  box: { w: number; h: number },
+  colCount: number,
+  big: boolean,
+  auto: number,
+  zoom: number
+): Layout {
+  const scale = auto * zoom;
+  const minH = big ? 14 * scale : 11;
+  const minFont = big ? 12 * auto : 9;
+  const maxBarH = Math.min(34 * scale, 44);
+
+  const colW = colCount > 0 ? (box.w - GAP * (colCount - 1)) / colCount : 0;
+  // Each column has padding, a header and a gap above its bars, none of
+  // which is space the bars can use.
+  const COL_CHROME = 62;
+  const inner = Math.max(0, colW - 20);
+  const innerH = Math.max(0, box.h - COL_CHROME);
+
+  const emFor = (longestRef: number) => 1.4 + 1.1 + longestRef * 0.62 + 2.9;
+  const minWFor = (longestRef: number) => emFor(longestRef) * minFont;
+  const maxSubFor = (longestRef: number) =>
+    inner > 0 ? Math.max(1, Math.floor((inner + GAP) / (minWFor(longestRef) + GAP))) : 1;
+
+  /** Tallest bar this column could use without spilling past the bottom. */
+  const heightForGroup = (count: number, longestRef: number): number => {
+    if (!big || innerH <= 0 || count === 0) return big ? maxBarH : 28;
+    const maxSub = maxSubFor(longestRef);
+    let best = 0;
+    for (let c = 1; c <= maxSub; c++) {
+      const rows = Math.max(1, Math.ceil(count / c));
+      const h = (innerH - GAP * (rows - 1)) / rows;
+      if (h > best) best = h;
+      if (h >= maxBarH) return maxBarH;
+    }
+    return Math.min(best, maxBarH);
+  };
+
+  // The board takes the smallest of those, so no column overflows and every
+  // bar on screen is the same height.
+  let barH = maxBarH;
+  if (big && innerH > 0) {
+    for (const g of groups) {
+      const longest = g.items.reduce((n, i) => Math.max(n, i.ref.length), 8);
+      const h = heightForGroup(g.items.length, longest);
+      if (g.items.length > 0 && h < barH) barH = h;
+    }
+    barH = Math.max(minH, Math.min(barH, maxBarH));
+  } else if (!big) {
+    barH = 28;
+  }
+
+  const longestOverall = groups.reduce(
+    (n, g) => Math.max(n, g.items.reduce((m, i) => Math.max(m, i.ref.length), 8)),
+    8
+  );
+  const subColsSample = maxSubFor(longestOverall);
+  const subColW =
+    subColsSample > 0 && inner > 0
+      ? (inner - GAP * (subColsSample - 1)) / subColsSample
+      : inner;
+  const fontByWidth = subColW > 0 ? subColW / emFor(longestOverall) : Infinity;
+
+  const fontPx = Math.max(
+    7,
+    Math.min(big ? 22 * scale : 12, barH * (big ? 0.46 : 0.42), fontByWidth)
+  );
+
+  const rowsPerCol =
+    big && innerH > 0
+      ? Math.max(1, Math.floor((innerH + GAP) / (barH + GAP)))
+      : Infinity;
+
+  return {
+    barH,
+    fontPx,
+    capacityFor: (longestRef) =>
+      big ? maxSubFor(longestRef) * (rowsPerCol === Infinity ? 999 : rowsPerCol) : Infinity,
+    subColsFor: (count, longestRef) =>
+      Math.max(
+        1,
+        Math.min(
+          maxSubFor(longestRef),
+          big ? Math.ceil(count / rowsPerCol) : Math.ceil(count / 14)
+        )
+      ),
+    rowsFor: (count, subCols) => Math.max(1, Math.ceil(count / subCols)),
+  };
+}
+
 function FloorColumn({
   group,
   kind,
   scaleMs,
-  big,
-  zoom,
+  layout,
   onItemClick,
 }: {
   group: FloorGroup;
   kind: "queue" | "process";
   scaleMs: number;
-  big: boolean;
-  /** Manual size multiplier, for tuning against real viewing distance. */
-  zoom: number;
+  layout: Layout;
   onItemClick?: (ref: string) => void;
 }) {
-  const auto = useDisplayScale(big);
-  const scale = auto * zoom;
-  const barsRef = useRef<HTMLDivElement>(null);
-  const box = useBox(barsRef);
-
   // Running first, then longest, so a drop can only ever lose finished work.
   const items = [...group.items].sort((a, b) => {
     if (a.running !== b.running) return a.running ? -1 : 1;
     return b.ms - a.ms;
   });
 
-  // How small a bar may get before wrapping into another sub column. Tuned
-  // so a 1080p wall fits roughly sixty lots per area with both boards shown,
-  // and about double that with a single board on screen.
-  const minH = big ? 15 * scale : 11;
-  /**
-   * A sub column has to be wide enough to hold the longest lot number on it,
-   * at a size still worth reading, plus the duration beside it.
-   *
-   * A fixed width could not do that: a long lot number in a narrow column
-   * left no room, and the text floor then overrode the width limit, so the
-   * number was quietly cut off. The width is now derived from the longest
-   * reference actually present, which guarantees it fits.
-   *
-   * The budget in ems: padding either side, the gap before the duration, the
-   * reference in the mono face, and the duration itself.
-   */
-  const minFont = big ? 12 * auto : 9;
   const longestRef = items.reduce((n, i) => Math.max(n, i.ref.length), 8);
-  const emNeeded = 1.4 + 1.1 + longestRef * 0.62 + 2.9;
-  const minW = emNeeded * minFont;
+  const capacity = layout.capacityFor(longestRef);
+  const shown = items.length > capacity ? items.slice(0, capacity) : items;
+  const hidden = items.length - shown.length;
 
-  const maxSub = Math.max(1, Math.floor((box.w + GAP) / (minW + GAP)));
-
-  /**
-   * In the dashboard the board is free to grow downwards, so every lot is
-   * shown and the bars keep a comfortable fixed height. Only on a wall, where
-   * the screen is a hard boundary, does anything have to give.
-   */
-  const ROW_H = 28;
-
-  let shown = items;
-  let hidden = 0;
-  let subCols: number;
-  let rows: number;
-  let barH: number;
-
-  if (!big) {
-    subCols = Math.max(1, Math.min(maxSub, Math.ceil(items.length / 14)));
-    rows = Math.max(1, Math.ceil(items.length / subCols));
-    barH = ROW_H;
-  } else {
-    const maxRows = Math.max(1, Math.floor((box.h + GAP) / (minH + GAP)));
-    const capacity = maxSub * maxRows;
-    const overflow = box.h > 0 && items.length > capacity;
-    shown = overflow ? items.slice(0, capacity) : items;
-    hidden = items.length - shown.length;
-
-    /**
-     * Taller than it needs to be for a laptop, because the board's job is to
-     * be read from across the shop floor. With Live as the default view there
-     * are far fewer bars, so they reach this height rather than being
-     * squeezed, and the text scales up with them.
-     */
-    // Bars stop growing past this, so a near empty column shows a few normal
-    // bars with space beneath rather than a handful of enormous ones.
-    const maxBarH = Math.min(42 * scale, 52);
-    const heightFor = (cols: number) => {
-      const r = Math.max(1, Math.ceil(shown.length / cols));
-      const natural = box.h > 0 ? (box.h - GAP * (r - 1)) / r : minH;
-      return { r, h: Math.min(natural, maxBarH) };
-    };
-
-    /**
-     * Wrapping early makes bars taller, and taller bars mean bigger text.
-     * Filling one sub column to the brim before wrapping was leaving the text
-     * far smaller than the space allowed, which is what made a wall display
-     * hard to read. So the narrowest layout that reaches full bar height wins,
-     * and failing that the one that gets closest.
-     */
-    let best = 1;
-    let bestH = heightFor(1).h;
-    for (let c = 1; c <= maxSub; c++) {
-      const { h } = heightFor(c);
-      if (h >= maxBarH) {
-        best = c;
-        bestH = h;
-        break;
-      }
-      if (h > bestH) {
-        best = c;
-        bestH = h;
-      }
-    }
-
-    subCols = best;
-    rows = heightFor(best).r;
-    barH = bestH;
-  }
-
-
-  /**
-   * Text size has to respect the bar's width as well as its height. Sizing it
-   * from height alone gave a tall bar in a narrow column text that could not
-   * fit across, so the duration was pushed off the right hand edge.
-   *
-   * The width budget is measured in ems against the longest reference
-   * actually on screen: padding either side, the gap before the duration,
-   * the reference itself, and the duration.
-   */
-  const subColW =
-    subCols > 0 && box.w > 0 ? (box.w - GAP * (subCols - 1)) / subCols : 0;
-  const fontByWidth = subColW > 0 ? subColW / emNeeded : Infinity;
-
-  /**
-   * The floor is the same size the column width was budgeted for, so raising
-   * a thin bar to a readable size can never make its text too wide to fit.
-   */
-  const fontPx = Math.max(
-    7,
-    Math.min(big ? 24 * scale : 12, barH * (big ? 0.46 : 0.42), fontByWidth)
-  );
+  const subCols = layout.subColsFor(shown.length, longestRef);
+  const rows = layout.rowsFor(shown.length, subCols);
 
   return (
     <div className="floor-col">
@@ -237,17 +233,14 @@ function FloorColumn({
         </span>
       </div>
 
-      {group.items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="floor-empty">Nothing today</div>
       ) : (
         <div
-          className={`floor-bars ${big ? "" : "grow"}`}
-          ref={barsRef}
+          className="floor-bars"
           style={{
             gridTemplateColumns: `repeat(${subCols}, minmax(0, 1fr))`,
-            // Always an explicit height, so the cap always holds and any
-            // leftover space sits empty at the bottom of the column.
-            gridTemplateRows: `repeat(${rows}, ${barH}px)`,
+            gridTemplateRows: `repeat(${rows}, ${layout.barH}px)`,
             alignContent: "start",
             gap: GAP,
           }}
@@ -258,7 +251,7 @@ function FloorColumn({
               <button
                 key={`${it.ref}-${i}`}
                 className={`floor-bar ${it.running ? "live" : "done"}`}
-                style={{ fontSize: `${fontPx}px` }}
+                style={{ fontSize: `${layout.fontPx}px` }}
                 title={`${it.ref} at ${it.step}. Queue ${formatDuration(
                   it.queueMs
                 )}, process ${formatDuration(it.processMs)}. ${
@@ -299,6 +292,17 @@ export function FloorColumnSet({
   zoom,
 }: Props) {
   const running = groups.reduce((a, g) => a + g.runningCount, 0);
+  const auto = useDisplayScale(Boolean(big));
+  const colsRef = useRef<HTMLDivElement>(null);
+  const box = useBox(colsRef);
+  const layout = useSharedLayout(
+    groups,
+    box,
+    groups.length,
+    Boolean(big),
+    auto,
+    zoom ?? 1
+  );
 
   return (
     <div className={`floor-set ${kind} ${big ? "big" : ""}`}>
@@ -320,6 +324,7 @@ export function FloorColumnSet({
 
       <div
         className="floor-cols"
+        ref={colsRef}
         style={{ gridTemplateColumns: `repeat(${groups.length}, minmax(0, 1fr))` }}
       >
         {groups.map((g) => (
@@ -328,8 +333,7 @@ export function FloorColumnSet({
             group={g}
             kind={kind}
             scaleMs={scaleMs}
-            big={Boolean(big)}
-            zoom={zoom ?? 1}
+            layout={layout}
             onItemClick={onItemClick}
           />
         ))}
