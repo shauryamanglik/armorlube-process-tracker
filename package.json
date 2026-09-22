@@ -26,5 +26,12 @@
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "browserslist": [
+    "chrome >= 70",
+    "edge >= 79",
+    "firefox >= 70",
+    "safari >= 12",
+    "not dead"
+  ]
 }
