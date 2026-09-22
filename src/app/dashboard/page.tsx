@@ -26,7 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import {
-  areaLabel,
+  boardColumn,
   bucketBy,
   dailySeries,
   dailySeriesPo,
@@ -428,7 +428,7 @@ export default function DashboardPage() {
           (data?.steps ?? [])
             .filter((x) => x.tracks_lots !== false && x.active !== false)
             .sort((a, b) => a.sort_order - b.sort_order)
-            .map((x) => areaLabel(x.area))
+            .map((x) => boardColumn(x))
         )
       ),
     [data]

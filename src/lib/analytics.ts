@@ -1110,6 +1110,22 @@ export function areaLabel(area: string): string {
   return AREA_LABELS[area] ?? area;
 }
 
+/**
+ * Steps that get a board column to themselves rather than sharing their
+ * area's. Fixturing and coating both sit in area 4 but are different work
+ * with different queues, so on the board they stand apart.
+ * Remove an entry here and that step folds back into its area column.
+ */
+export const OWN_COLUMN: Record<string, string> = {
+  Fixturing: "Fixturing",
+  Coating: "Coating",
+};
+
+/** Which board column a step belongs to. */
+export function boardColumn(step: { step_name: string; area: string }): string {
+  return OWN_COLUMN[step.step_name] ?? areaLabel(step.area);
+}
+
 export function floorView(
   rows: Enriched[],
   kind: SegmentKind,
@@ -1126,7 +1142,7 @@ export function floorView(
   for (const r of rows) {
     if (!r.step) continue;
     const key =
-      groupBy === "area" ? areaLabel(r.step.area) : r.step.step_name;
+      groupBy === "area" ? boardColumn(r.step) : r.step.step_name;
 
     for (const seg of r.segments) {
       if (seg.kind !== kind) continue;
