@@ -4,15 +4,20 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   enrich,
-  enrichPos,
   floorView,
-  floorViewPo,
   padGroups,
   boardColumn,
   type FloorGroup,
 } from "@/lib/analytics";
 import { DEFAULT_RULES, formatDuration, todayInPhoenix } from "@/lib/time";
-import type { LogRow, Operator, PoLog, Segment, Step, WorkRules } from "@/lib/types";
+import type {
+  LogRow,
+  Operator,
+  PoLog,
+  Segment,
+  Step,
+  WorkRules,
+} from "@/lib/types";
 
 /**
  * A board for a smart TV browser.
@@ -65,7 +70,7 @@ const CSS = `
 .tv-done{color:#a0a0a6;}
 
 /* Margin rather than gap. */
-.tv-bar{position:relative;height:38px;line-height:38px;margin-bottom:5px;
+.tv-bar{position:relative;margin-bottom:5px;
   border-radius:6px;background:#2a2a2d;overflow:hidden;}
 .tv-fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;}
 .tv-q .tv-fill{background:rgba(240,169,46,0.5);}
@@ -75,8 +80,8 @@ const CSS = `
 .tv-p.on{box-shadow:inset 3px 0 0 #4c8df6;}
 .tv-bar.off{box-shadow:inset 3px 0 0 rgba(255,255,255,0.18);}
 .tv-ref{position:relative;font-family:var(--font-mono),monospace;font-weight:600;
-  font-size:19px;margin-left:11px;text-shadow:0 1px 3px rgba(0,0,0,0.85);}
-.tv-time{position:relative;float:right;font-size:17px;font-weight:600;
+  font-size:1em;margin-left:11px;text-shadow:0 1px 3px rgba(0,0,0,0.85);}
+.tv-time{position:relative;float:right;font-size:0.88em;font-weight:600;
   margin-right:11px;opacity:0.85;text-shadow:0 1px 3px rgba(0,0,0,0.85);}
 .tv-bar.off .tv-ref,.tv-bar.off .tv-time{color:#c6c6cd;}
 .tv-empty{font-size:14px;color:#75757b;padding:10px 0;}
@@ -95,11 +100,13 @@ function Column({
   kind,
   scaleMs,
   maxRows,
+  barH,
 }: {
   group: FloorGroup;
   kind: "queue" | "process";
   scaleMs: number;
   maxRows: number;
+  barH: number;
 }) {
   const items = [...group.items].sort((a, b) => {
     if (a.running !== b.running) return a.running ? -1 : 1;
@@ -112,17 +119,15 @@ function Column({
     <div className="tv-col">
       <p className="tv-colname">{group.name}</p>
       <p className="tv-counts">
-        {group.runningCount > 0 && (
-          <span className="tv-live">{group.runningCount} here</span>
-        )}
-        {group.runningCount > 0 && group.doneCount > 0 && " · "}
-        {group.doneCount > 0 && (
-          <span className="tv-done">{group.doneCount} moved on</span>
+        {group.items.length > 0 ? (
+          <span className="tv-live">{group.items.length} here</span>
+        ) : (
+          <span className="tv-done">none</span>
         )}
       </p>
 
       {shown.length === 0 ? (
-        <p className="tv-empty">Nothing today</p>
+        <p className="tv-empty">Nothing here</p>
       ) : (
         shown.map((it, i) => {
           const pct = scaleMs > 0 ? Math.max(3, (it.ms / scaleMs) * 100) : 3;
@@ -134,6 +139,11 @@ function Column({
                 (kind === "queue" ? "tv-q " : "tv-p ") +
                 (it.running ? "on" : "off")
               }
+              style={{
+                height: barH,
+                lineHeight: barH + "px",
+                fontSize: Math.max(12, Math.round(barH * 0.48)),
+              }}
             >
               <span className="tv-fill" style={{ width: pct + "%" }} />
               <span className="tv-time">{formatDuration(it.ms)}</span>
@@ -154,7 +164,6 @@ function TvBoard() {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Payload | null>(null);
-  const [mode, setMode] = useState<"lots" | "pos">("lots");
   const [now, setNow] = useState("");
 
   // The key can come in the address, so the whole thing is one thing to type
@@ -174,9 +183,15 @@ function TvBoard() {
   const load = useCallback(async () => {
     if (!key) return;
     const day = todayInPhoenix();
+    // A lot that queued last week and is still waiting has an older record
+    // date, so fetching only today would miss it. The dashboard reaches back
+    // the same way, which is why the two disagreed.
+    const back = new Date(day + "T12:00:00Z");
+    back.setUTCDate(back.getUTCDate() - 21);
+    const from = back.toISOString().slice(0, 10);
     try {
       const res = await fetch(
-        "/api/analytics?from=" + day + "&to=" + day + "&deleted=0",
+        "/api/analytics?from=" + from + "&to=" + day + "&deleted=0",
         { headers: { "x-apt-key": key } }
       );
       if (res.status === 401) {
@@ -205,15 +220,6 @@ function TvBoard() {
     const t = setInterval(() => void load(), 60000);
     return () => clearInterval(t);
   }, [load]);
-
-  // Lots and orders swap every half minute, so one screen shows both.
-  useEffect(() => {
-    const t = setInterval(
-      () => setMode((m) => (m === "lots" ? "pos" : "lots")),
-      30000
-    );
-    return () => clearInterval(t);
-  }, []);
 
   if (!key) {
     return (
@@ -259,41 +265,40 @@ function TvBoard() {
 
   let queue: FloorGroup[] = [];
   let process: FloorGroup[] = [];
-  let label = "";
 
   if (data) {
-    if (mode === "lots") {
-      const rows = enrich(data.logs, data.steps, rules, false, data.segments);
-      const names = Array.from(
-        new Set(
-          data.steps
-            .filter((s) => s.tracks_lots !== false && s.active !== false)
-            .sort((a, b) => a.sort_order - b.sort_order)
-            .map((s) => boardColumn(s))
-        )
-      );
-      queue = padGroups(floorView(rows, "queue", day, rules, false, "area"), names);
-      process = padGroups(
-        floorView(rows, "process", day, rules, false, "area"),
-        names
-      );
-      label = "Lots";
-    } else {
-      const rows = enrichPos(
-        data.poLogs ?? [],
-        data.steps,
-        rules,
-        false,
-        data.segments
-      );
-      const names = data.steps
-        .filter((s) => s.tracks_po && s.active !== false)
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .map((s) => s.step_name);
-      queue = padGroups(floorViewPo(rows, "queue", day, rules, false), names);
-      process = padGroups(floorViewPo(rows, "process", day, rules, false), names);
-      label = "Purchase orders";
-    }
+    const rows = enrich(data.logs, data.steps, rules, false, data.segments);
+    const names = Array.from(
+      new Set(
+        data.steps
+          .filter((s) => s.tracks_lots !== false && s.active !== false)
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((s) => boardColumn(s))
+      )
+    );
+
+    /** Only what is on the floor now. Work that moved on is history, and a
+     *  wall display is about the present. */
+    const liveOnly = (groups: FloorGroup[]): FloorGroup[] =>
+      groups.map((g) => {
+        const items = g.items.filter((i) => i.running);
+        return {
+          ...g,
+          items,
+          runningCount: items.length,
+          doneCount: 0,
+          staleCount: 0,
+        };
+      });
+
+    queue = padGroups(
+      liveOnly(floorView(rows, "queue", day, rules, false, "area")),
+      names
+    );
+    process = padGroups(
+      liveOnly(floorView(rows, "process", day, rules, false, "area")),
+      names
+    );
   }
 
   const scaleMs = Math.max(
@@ -305,20 +310,29 @@ function TvBoard() {
     queue.reduce((a, g) => a + g.runningCount, 0) +
     process.reduce((a, g) => a + g.runningCount, 0);
 
-  // Two stacked boards inside the viewport, sized in vh because dvh does not
-  // exist on this browser. Row counts are fixed rather than measured.
-  const maxRows = 7;
+  /**
+   * Both boards share one bar height, chosen from whichever column is
+   * busiest, so every bar on screen is the same size and all live work fits.
+   * Tiers rather than measurement, because this browser cannot be relied on
+   * for box maths.
+   */
+  const busiest = Math.max(
+    1,
+    ...queue.map((g) => g.items.length),
+    ...process.map((g) => g.items.length)
+  );
+  const barH =
+    busiest <= 7 ? 38 : busiest <= 10 ? 30 : busiest <= 13 ? 24 : busiest <= 17 ? 19 : 15;
+  const maxRows = 20;
 
   return (
     <div className="tv-root">
       <div className="tv-pad">
         <div className="tv-head">
-          <h1 className="tv-title">
-            {label} on the floor
-          </h1>
+          <h1 className="tv-title">Lots on the floor now</h1>
           <span className="tv-sub">
             <span className="tv-dot" />
-            {liveNow} running · {now}
+            {liveNow} on the floor · {now}
           </span>
           <div className="tv-clear" />
         </div>
@@ -334,6 +348,7 @@ function TvBoard() {
               kind="queue"
               scaleMs={scaleMs}
               maxRows={maxRows}
+              barH={barH}
             />
           ))}
         </div>
@@ -347,6 +362,7 @@ function TvBoard() {
               kind="process"
               scaleMs={scaleMs}
               maxRows={maxRows}
+              barH={barH}
             />
           ))}
         </div>
