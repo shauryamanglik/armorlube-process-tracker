@@ -191,10 +191,14 @@ function FloorColumn({
         <span className="fc-name">{group.name}</span>
         <span className="fc-count">
           {group.runningCount > 0 && (
-            <span className="fc-live">{group.runningCount}</span>
+            <span className="fc-live" title="Here right now">
+              {group.runningCount}
+            </span>
           )}
           {group.doneCount > 0 && (
-            <span className="fc-done">{group.doneCount}</span>
+            <span className="fc-done" title="Was here earlier today, has moved on">
+              {group.doneCount}
+            </span>
           )}
         </span>
       </div>
@@ -226,7 +230,7 @@ function FloorColumn({
                 )}, process ${formatDuration(it.processMs)}. ${
                   it.running
                     ? `Running since ${formatStamp(it.startedAt)}`
-                    : "Moved on"
+                    : `Now: ${it.nowAt ?? "moved on"}`
                 }`}
                 onClick={() => onItemClick?.(it.ref)}
               >

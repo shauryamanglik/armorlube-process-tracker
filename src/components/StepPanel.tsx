@@ -120,18 +120,31 @@ export default function StepPanel({
       byLog.set(sg.log_id, list);
     }
 
-    const out: LotHere[] = [];
-    const seen = new Set<string>();
+    /**
+     * A lot is at this step when it has a stretch still open here. That is
+     * the same rule the dashboard board uses, so the two can never disagree.
+     *
+     * Two things used to break that. Records with nothing logged at all read
+     * as "Not started" and stayed in this list forever, and only the newest
+     * record per lot was checked, so an open stretch on an earlier pass was
+     * missed. Both are handled by looking at every record the lot has here
+     * and asking only whether something is open.
+     */
+    const byLot = new Map<string, Segment[]>();
     for (const r of recs) {
       const lot = r.lot_id as string;
-      if (seen.has(lot)) continue;
-      seen.add(lot);
-      const st = liveState(byLog.get(r.id as string) ?? []);
-      // A lot that has finished here has moved on, so it is not "at" this
-      // station any more and would only clutter the list.
-      if (st.tone === "done") continue;
+      const segsFor = byLog.get(r.id as string) ?? [];
+      byLot.set(lot, [...(byLot.get(lot) ?? []), ...segsFor]);
+    }
+
+    const out: LotHere[] = [];
+    for (const [lot, segsFor] of byLot) {
+      const st = liveState(segsFor);
+      // Only work that is genuinely open is "at" this step.
+      if (st.tone !== "queue" && st.tone !== "process") continue;
       out.push({ lot_id: lot, label: st.label, tone: st.tone, since: st.since });
     }
+    out.sort((a, b) => (b.since ?? "").localeCompare(a.since ?? ""));
     setHereStates(out);
   }, [step.id]);
 

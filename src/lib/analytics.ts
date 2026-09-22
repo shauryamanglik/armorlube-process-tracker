@@ -1066,6 +1066,8 @@ export type FloorItem = {
   /** Both totals, so a bar can show the whole story of its time here. */
   queueMs: number;
   processMs: number;
+  /** What the lot is doing right now, whichever board this bar is on. */
+  nowAt?: string;
 };
 
 export type FloorGroup = {
@@ -1238,34 +1240,43 @@ function collect(
 }
 
 /**
- * Which board a lot belongs on. Live work goes where it is. Work that has
- * moved on goes to the last phase it was in, so it is listed once rather
- * than appearing under both headings.
+ * A lot belongs on a board if it spent time in that phase today. It is only
+ * counted as running there if that phase is the one it is actually in now.
+ *
+ * So a lot that queued this morning and is being worked this afternoon shows
+ * in the queue column as moved on, and in the process column as running. Both
+ * are true, and the running counts stay equal to what is physically there.
  */
-function boardFor(p: Placed): SegmentKind {
-  if (p.status === "process") return "process";
-  if (p.status === "queue") return "queue";
-  return p.agg.processMs > 0 ? "process" : "queue";
-}
-
 function buildGroups(placed: Placed[], kind: SegmentKind): FloorGroup[] {
   const groups = new Map<string, FloorItem[]>();
 
   for (const p of placed) {
-    if (boardFor(p) !== kind) continue;
     const a = p.agg;
+    const ms = kind === "queue" ? a.queueMs : a.processMs;
     const open = kind === "queue" ? a.openQueue : a.openProcess;
+
+    // No time in this phase today means it does not belong on this board.
+    if (ms <= 0 && !open) continue;
+
     const list = groups.get(p.column) ?? [];
     list.push({
       ref: a.ref,
       step: a.step,
-      ms: kind === "queue" ? a.queueMs : a.processMs,
+      ms,
       queueMs: a.queueMs,
       processMs: a.processMs,
-      running: p.status !== "done",
+      // Running here only if this is the phase it is currently in.
+      running: Boolean(open),
       startedAt: open?.started_at ?? a.firstStart,
       endedAt: open ? null : a.lastEnd,
       crew: Array.from(a.crew),
+      // Where it actually is, so a moved on bar can say where it went.
+      nowAt:
+        p.status === "process"
+          ? "In process"
+          : p.status === "queue"
+          ? "In queue"
+          : "Moved on",
     });
     groups.set(p.column, list);
   }

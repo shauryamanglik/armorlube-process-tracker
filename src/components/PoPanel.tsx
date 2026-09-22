@@ -124,13 +124,21 @@ export default function PoPanel({
         list.push(sg);
         byPo.set(sg.po_log_id, list);
       }
+      // Every record an order has here, not just the newest, so an open
+      // stretch is never missed. Matches the rule the dashboard uses.
+      const allFor = new Map<string, Segment[]>();
+      for (const r of rows) {
+        allFor.set(r.po_number, [
+          ...(allFor.get(r.po_number) ?? []),
+          ...(byPo.get(r.id) ?? []),
+        ]);
+      }
       const states = new Map<
         string,
         { label: string; tone: string; since: string | null }
       >();
-      for (const r of rows) {
-        if (states.has(r.po_number)) continue;
-        states.set(r.po_number, liveState(byPo.get(r.id) ?? []));
+      for (const [num, segsFor] of allFor) {
+        states.set(num, liveState(segsFor));
       }
       setHereStates(states);
     } else {
