@@ -1941,8 +1941,8 @@ tbody tr.clickable:hover {
   overflow: hidden;
   display: flex;
   align-items: center;
-  padding: 0 0.6em;
-  gap: 0.5em;
+  padding: 0 0.7em;
+  gap: 0;
   text-align: left;
   transition: filter 0.12s ease;
 }
@@ -2008,33 +2008,63 @@ tbody tr.clickable:hover {
   }
 }
 
+/* ---------- bar text ----------
+   One block, because five competing rules were fighting over the same two
+   elements and whichever landed last won. */
+
 .fb-label,
 .fb-time {
   position: relative;
-  /* inherits the size the bar sets, so text scales with bar height */
   font-size: inherit;
-  font-weight: 700;
   white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
   line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
 }
 
-/* The lot number is an identifier, so it reads as one: monospaced, tight
-   and even. The duration is a quantity, so it sits in the sans face with
-   tabular figures, which keeps the numbers aligned down the column and
-   stops the two being mistaken for each other at a distance. */
+/* The lot number is an identifier, so it reads as one: monospaced and even.
+   It takes the space it needs and gives way with an ellipsis only when the
+   bar genuinely cannot hold both. */
 .fb-label {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-weight: 600;
   letter-spacing: 0.02em;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/* The duration is a quantity, so it sits in the sans face with tabular
+   figures. It never shrinks and never clips, which is what used to chop it
+   off the right hand edge, and it is pushed hard right with real space
+   before it so the two never read as one string. */
 .fb-time {
   font-family: var(--font-sans), system-ui, sans-serif;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  font-size: 0.92em;
-  opacity: 0.95;
+  font-size: 0.88em;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 1.1em;
+  opacity: 0.82;
+}
+
+.floor-bar.live .fb-label {
+  color: #ffffff;
+}
+
+.floor-bar.live .fb-time {
+  color: #ffffff;
+  opacity: 0.86;
+}
+
+.floor-bar.done .fb-label {
+  color: #ccccd3;
+}
+
+.floor-bar.done .fb-time {
+  color: #ccccd3;
+  opacity: 0.72;
 }
 
 .floor-more {
@@ -2047,47 +2077,6 @@ tbody tr.clickable:hover {
 
 .floor-shell.full .floor-more {
   font-size: clamp(11px, 0.8vw, 16px);
-}
-
-/* the lot number gives way first, the duration never does */
-/* The lot number is the one thing that must always be fully readable, so it
-   never shrinks. If a bar is somehow too narrow, the duration gives way
-   first rather than the identifier. */
-.fb-label {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.fb-time {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-align: right;
-}
-
-/* The label can sit over the coloured fill or over the empty track behind
-   it, so it is always light with a dark shadow rather than depending on
-   which half of the bar it lands on. */
-.floor-bar.live .fb-label,
-.floor-bar.live .fb-time {
-  color: #ffffff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-}
-
-.floor-bar.done .fb-label {
-  color: #c6c6cd;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-
-.floor-bar.done .fb-time {
-  color: #9a9aa2;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-
-.fb-time {
-  margin-left: auto;
-  font-weight: 600;
-  opacity: 0.9;
 }
 
 /* Size comes from the bar, which knows how tall it ended up. */

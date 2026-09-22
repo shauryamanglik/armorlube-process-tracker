@@ -122,7 +122,7 @@ function FloorColumn({
    * roughly this much, and anything narrower clipped the lot number, which
    * is the one thing on the bar that has to be readable.
    */
-  const minW = big ? 156 * auto : 126;
+  const minW = big ? 176 * auto : 146;
 
   const maxSub = Math.max(1, Math.floor((box.w + GAP) / (minW + GAP)));
 
@@ -192,9 +192,24 @@ function FloorColumn({
 
   const capped = !big || barH >= 54 * scale;
 
+  /**
+   * Text size has to respect the bar's width as well as its height. Sizing it
+   * from height alone gave a tall bar in a narrow column text that could not
+   * fit across, so the duration was pushed off the right hand edge.
+   *
+   * The width budget is measured in ems against the longest reference
+   * actually on screen: padding either side, the gap before the duration,
+   * the reference itself, and the duration.
+   */
+  const subColW =
+    subCols > 0 && box.w > 0 ? (box.w - GAP * (subCols - 1)) / subCols : 0;
+  const longestRef = shown.reduce((n, i) => Math.max(n, i.ref.length), 8);
+  const emNeeded = 1.4 + 1.1 + longestRef * 0.6 + 6 * 0.46;
+  const fontByWidth = subColW > 0 ? subColW / emNeeded : Infinity;
+
   const fontPx = Math.max(
-    big ? 8 : 9,
-    Math.min(big ? 24 * scale : 12, barH * (big ? 0.46 : 0.42))
+    big ? 8 : 8,
+    Math.min(big ? 24 * scale : 12, barH * (big ? 0.46 : 0.42), fontByWidth)
   );
 
   return (
