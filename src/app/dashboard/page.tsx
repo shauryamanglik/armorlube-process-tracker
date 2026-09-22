@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  Boxes,
+  ChevronDown,
+  ChevronUp,
   CircleCheck,
   Clock3,
   Download,
@@ -133,6 +136,11 @@ export default function DashboardPage() {
   const [editing, setEditing] = useState<EditorTarget | null>(null);
   /** Which day the live board shows. Today unless someone changes it. */
   const [floorDay, setFloorDay] = useState(() => todayInPhoenix());
+  /** One board at a time keeps the top of the page readable. */
+  const [boardKind, setBoardKind] = useState<"lots" | "pos">("lots");
+  /** Eight filter fields open at once is a wall of controls, so they fold
+   *  away and the header shows what is currently narrowing the numbers. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   /** Narrow the lots list to live, completed, or those that skipped a step. */
   const [lotView, setLotView] = useState<"all" | "live" | "done" | "skipped">(
     "all"
@@ -468,6 +476,34 @@ export default function DashboardPage() {
     [poRows, floorDay, rules, includeOffShift, poStationNames]
   );
 
+  /** Plain words for whatever is currently narrowing the numbers. */
+  const activeFilters = useMemo(() => {
+    const out: string[] = [];
+    if (area) out.push(area);
+    if (stepId)
+      out.push(
+        (data?.steps ?? []).find((s) => s.id === stepId)?.step_name ?? "a step"
+      );
+    if (operator) out.push(opNames.get(operator) ?? "an operator");
+    if (blast) out.push(blast);
+    if (lotSearch) out.push(`"${lotSearch}"`);
+    if (onlyFlagged) out.push("shift crossing only");
+    if (hideIncomplete) out.push("complete only");
+    if (showDeleted) out.push("including deleted");
+    return out;
+  }, [
+    area,
+    stepId,
+    operator,
+    blast,
+    lotSearch,
+    onlyFlagged,
+    hideIncomplete,
+    showDeleted,
+    data,
+    opNames,
+  ]);
+
   const controlProps = { metric, setMetric, agg, setAgg };
 
   /**
@@ -677,38 +713,71 @@ export default function DashboardPage() {
         {/* live floor, above everything else, because it answers the
             question people walk up to the screen with */}
         <FloorBoard
-          label="On the floor now, lots"
-          queueGroups={floorQueue}
-          processGroups={floorProcess}
+          label={
+            boardKind === "lots"
+              ? "On the floor now, lots"
+              : "On the floor now, purchase orders"
+          }
+          leftControls={
+            poStationNames.length > 0 ? (
+              <div className="seg" style={{ marginRight: 4 }}>
+                <button
+                  aria-pressed={boardKind === "lots"}
+                  onClick={() => setBoardKind("lots")}
+                >
+                  <Boxes size={15} />
+                  Lots
+                </button>
+                <button
+                  aria-pressed={boardKind === "pos"}
+                  onClick={() => setBoardKind("pos")}
+                >
+                  <FileText size={15} />
+                  Orders
+                </button>
+              </div>
+            ) : null
+          }
+          queueGroups={boardKind === "lots" ? floorQueue : floorPoQueue}
+          processGroups={boardKind === "lots" ? floorProcess : floorPoProcess}
           day={floorDay}
           onDayChange={setFloorDay}
           onRefresh={() => void load()}
           onItemClick={(ref) => {
-            setOpenLot(ref);
-            setTab("lots");
-          }}
-        />
-
-        {poStationNames.length > 0 && (
-          <FloorBoard
-            label="On the floor now, purchase orders"
-            queueGroups={floorPoQueue}
-            processGroups={floorPoProcess}
-            day={floorDay}
-            onDayChange={setFloorDay}
-            onRefresh={() => void load()}
-            onItemClick={(ref) => {
+            if (boardKind === "lots") {
+              setOpenLot(ref);
+              setTab("lots");
+            } else {
               setOpenPo(ref);
               setTab("bypo");
-            }}
-          />
-        )}
+            }
+          }}
+        />
 
         {/* filters */}
         <section className="panel stack">
           <div className="row">
-            <Filter size={16} color="#9aa8b8" />
-            <strong style={{ fontSize: 14 }}>Filters</strong>
+            <button
+              className="btn sm ghost"
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              <Filter size={15} />
+              Filters
+              {activeFilters.length > 0 && (
+                <span className="badge info">{activeFilters.length}</span>
+              )}
+              {filtersOpen ? (
+                <ChevronUp size={15} />
+              ) : (
+                <ChevronDown size={15} />
+              )}
+            </button>
+            {!filtersOpen && (
+              <span className="hint" style={{ minWidth: 0 }}>
+                {from} to {to}
+                {activeFilters.length > 0 ? `, ${activeFilters.join(", ")}` : ""}
+              </span>
+            )}
             <div className="spacer" />
             <div className="seg">
               <button
@@ -748,6 +817,7 @@ export default function DashboardPage() {
               : `Time outside ${rules.work_start} to ${rules.work_end} on working days is excluded. Records that span a shift boundary are flagged below.`}
           </p>
 
+          {filtersOpen && (
           <div className="grid-4">
             <div>
               <label className="field-label">From</label>
@@ -865,6 +935,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+          )}
         </section>
 
         {loadError && <div className="panel err">{loadError}</div>}

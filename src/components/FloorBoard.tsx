@@ -88,24 +88,49 @@ function FloorColumn({
   const minW = big ? 104 : 84;
 
   const maxSub = Math.max(1, Math.floor((box.w + GAP) / (minW + GAP)));
-  const maxRows = Math.max(1, Math.floor((box.h + GAP) / (minH + GAP)));
-  const capacity = maxSub * maxRows;
 
-  const overflow = box.h > 0 && items.length > capacity;
-  const shown = overflow ? items.slice(0, capacity) : items;
-  const hidden = items.length - shown.length;
+  /**
+   * In the dashboard the board is free to grow downwards, so every lot is
+   * shown and the bars keep a comfortable fixed height. Only on a wall, where
+   * the screen is a hard boundary, does anything have to give.
+   */
+  const ROW_H = 28;
 
-  const subCols = Math.max(
-    1,
-    Math.min(maxSub, Math.ceil(shown.length / Math.max(1, maxRows)))
-  );
-  const rows = Math.max(1, Math.ceil(shown.length / subCols));
-  const barH = box.h > 0 ? (box.h - GAP * (rows - 1)) / rows : minH;
+  let shown = items;
+  let hidden = 0;
+  let subCols: number;
+  let rows: number;
+  let barH: number;
 
-  // Text scales with whatever height the bar ended up at.
+  if (!big) {
+    subCols = Math.max(1, Math.min(maxSub, Math.ceil(items.length / 14)));
+    rows = Math.max(1, Math.ceil(items.length / subCols));
+    barH = ROW_H;
+  } else {
+    const maxRows = Math.max(1, Math.floor((box.h + GAP) / (minH + GAP)));
+    const capacity = maxSub * maxRows;
+    const overflow = box.h > 0 && items.length > capacity;
+    shown = overflow ? items.slice(0, capacity) : items;
+    hidden = items.length - shown.length;
+
+    subCols = Math.max(
+      1,
+      Math.min(maxSub, Math.ceil(shown.length / Math.max(1, maxRows)))
+    );
+    rows = Math.max(1, Math.ceil(shown.length / subCols));
+
+    // With only a handful of lots the rows would stretch and the bars would
+    // end up absurdly tall, so they are capped and the leftover space is
+    // simply left empty at the bottom.
+    const natural = box.h > 0 ? (box.h - GAP * (rows - 1)) / rows : minH;
+    barH = Math.min(natural, 38);
+  }
+
+  const capped = !big || barH >= 38;
+
   const fontPx = Math.max(
-    big ? 8 : 7.5,
-    Math.min(big ? 26 : 12, barH * 0.46)
+    big ? 8 : 9,
+    Math.min(big ? 15 : 12, barH * 0.42)
   );
 
   return (
@@ -126,11 +151,14 @@ function FloorColumn({
         <div className="floor-empty">Nothing today</div>
       ) : (
         <div
-          className="floor-bars"
+          className={`floor-bars ${big ? "" : "grow"}`}
           ref={barsRef}
           style={{
             gridTemplateColumns: `repeat(${subCols}, minmax(0, 1fr))`,
-            gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+            gridTemplateRows: capped
+              ? `repeat(${rows}, ${barH}px)`
+              : `repeat(${rows}, minmax(0, 1fr))`,
+            alignContent: "start",
             gap: GAP,
           }}
         >
@@ -219,6 +247,7 @@ export function FloorColumnSet({
  * fullscreen for putting it on a wall display.
  */
 export default function FloorBoard({
+  leftControls,
   queueGroups,
   processGroups,
   day,
@@ -227,6 +256,8 @@ export default function FloorBoard({
   onItemClick,
   label,
 }: {
+  /** Rendered in the header, used for the lots against orders switch. */
+  leftControls?: React.ReactNode;
   queueGroups: FloorGroup[];
   processGroups: FloorGroup[];
   day: string;
@@ -285,6 +316,7 @@ export default function FloorBoard({
   return (
     <div className={`floor-shell ${full ? "full" : ""}`} ref={shell}>
       <div className="floor-top">
+        {leftControls}
         <div style={{ minWidth: 0 }}>
           <h2 className="floor-title">{label}</h2>
           <div className="hint">
