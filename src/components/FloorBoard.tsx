@@ -162,7 +162,7 @@ function FloorColumn({
      */
     // Bars stop growing past this, so a near empty column shows a few normal
     // bars with space beneath rather than a handful of enormous ones.
-    const maxBarH = Math.min(54 * scale, 64);
+    const maxBarH = Math.min(42 * scale, 52);
     const heightFor = (cols: number) => {
       const r = Math.max(1, Math.ceil(shown.length / cols));
       const natural = box.h > 0 ? (box.h - GAP * (r - 1)) / r : minH;
@@ -196,7 +196,6 @@ function FloorColumn({
     barH = bestH;
   }
 
-  const capped = !big || barH >= 54 * scale;
 
   /**
    * Text size has to respect the bar's width as well as its height. Sizing it
@@ -216,7 +215,7 @@ function FloorColumn({
    * a thin bar to a readable size can never make its text too wide to fit.
    */
   const fontPx = Math.max(
-    minFont,
+    7,
     Math.min(big ? 24 * scale : 12, barH * (big ? 0.46 : 0.42), fontByWidth)
   );
 
@@ -246,9 +245,9 @@ function FloorColumn({
           ref={barsRef}
           style={{
             gridTemplateColumns: `repeat(${subCols}, minmax(0, 1fr))`,
-            gridTemplateRows: capped
-              ? `repeat(${rows}, ${barH}px)`
-              : `repeat(${rows}, minmax(0, 1fr))`,
+            // Always an explicit height, so the cap always holds and any
+            // leftover space sits empty at the bottom of the column.
+            gridTemplateRows: `repeat(${rows}, ${barH}px)`,
             alignContent: "start",
             gap: GAP,
           }}
