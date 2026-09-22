@@ -112,17 +112,21 @@ function FloorColumn({
   // and about double that with a single board on screen.
   const minH = big ? 15 * scale : 11;
   /**
-   * Width follows the display, not the zoom. Scaling it with zoom used to cost
-   * a sub column, which forced more rows, which made the bars shorter and the
-   * text smaller. Turning the size up made the board harder to read.
+   * A sub column has to be wide enough to hold the longest lot number on it,
+   * at a size still worth reading, plus the duration beside it.
+   *
+   * A fixed width could not do that: a long lot number in a narrow column
+   * left no room, and the text floor then overrode the width limit, so the
+   * number was quietly cut off. The width is now derived from the longest
+   * reference actually present, which guarantees it fits.
+   *
+   * The budget in ems: padding either side, the gap before the duration, the
+   * reference in the mono face, and the duration itself.
    */
-  /**
-   * Wide enough that a full lot number and its duration both fit. A nine
-   * character number in the mono face plus a duration plus padding needs
-   * roughly this much, and anything narrower clipped the lot number, which
-   * is the one thing on the bar that has to be readable.
-   */
-  const minW = big ? 176 * auto : 146;
+  const minFont = big ? 12 * auto : 9;
+  const longestRef = items.reduce((n, i) => Math.max(n, i.ref.length), 8);
+  const emNeeded = 1.4 + 1.1 + longestRef * 0.62 + 2.9;
+  const minW = emNeeded * minFont;
 
   const maxSub = Math.max(1, Math.floor((box.w + GAP) / (minW + GAP)));
 
@@ -156,7 +160,9 @@ function FloorColumn({
      * are far fewer bars, so they reach this height rather than being
      * squeezed, and the text scales up with them.
      */
-    const maxBarH = 54 * scale;
+    // Bars stop growing past this, so a near empty column shows a few normal
+    // bars with space beneath rather than a handful of enormous ones.
+    const maxBarH = Math.min(54 * scale, 64);
     const heightFor = (cols: number) => {
       const r = Math.max(1, Math.ceil(shown.length / cols));
       const natural = box.h > 0 ? (box.h - GAP * (r - 1)) / r : minH;
@@ -203,12 +209,14 @@ function FloorColumn({
    */
   const subColW =
     subCols > 0 && box.w > 0 ? (box.w - GAP * (subCols - 1)) / subCols : 0;
-  const longestRef = shown.reduce((n, i) => Math.max(n, i.ref.length), 8);
-  const emNeeded = 1.4 + 1.1 + longestRef * 0.6 + 6 * 0.46;
   const fontByWidth = subColW > 0 ? subColW / emNeeded : Infinity;
 
+  /**
+   * The floor is the same size the column width was budgeted for, so raising
+   * a thin bar to a readable size can never make its text too wide to fit.
+   */
   const fontPx = Math.max(
-    big ? 8 : 8,
+    minFont,
     Math.min(big ? 24 * scale : 12, barH * (big ? 0.46 : 0.42), fontByWidth)
   );
 
