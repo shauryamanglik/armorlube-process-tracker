@@ -6,8 +6,10 @@ import {
   Hourglass,
   Maximize2,
   Minimize2,
+  Minus,
   Pause,
   Play,
+  Plus,
   RefreshCw,
   Rows3,
 } from "lucide-react";
@@ -29,6 +31,7 @@ type Props = {
   scaleMs: number;
   onItemClick?: (ref: string) => void;
   big?: boolean;
+  zoom?: number;
 };
 
 /** Live box size of an element, so the layout can be worked out from the
@@ -51,6 +54,24 @@ function useBox(ref: React.RefObject<HTMLDivElement | null>) {
 const GAP = 4;
 
 /**
+ * How much bigger everything should be than on a laptop. A 65 inch TV driven
+ * at 100% scaling reports 3840 CSS pixels, which would render a 15px label at
+ * about 4mm on the glass: fine on a desk, useless from across a shop floor.
+ * The board scales with the viewport so the text stays physically large.
+ */
+function useDisplayScale(big: boolean) {
+  const [vw, setVw] = useState(1440);
+  useEffect(() => {
+    const read = () => setVw(window.innerWidth);
+    read();
+    window.addEventListener("resize", read);
+    return () => window.removeEventListener("resize", read);
+  }, []);
+  if (!big) return 1;
+  return Math.min(2.6, Math.max(1, vw / 1500));
+}
+
+/**
  * One area, holding every lot that touched it today.
  *
  * Fitting them all is the whole point of the board, so rather than scrolling
@@ -64,14 +85,19 @@ function FloorColumn({
   kind,
   scaleMs,
   big,
+  zoom,
   onItemClick,
 }: {
   group: FloorGroup;
   kind: "queue" | "process";
   scaleMs: number;
   big: boolean;
+  /** Manual size multiplier, for tuning against real viewing distance. */
+  zoom: number;
   onItemClick?: (ref: string) => void;
 }) {
+  const auto = useDisplayScale(big);
+  const scale = auto * zoom;
   const barsRef = useRef<HTMLDivElement>(null);
   const box = useBox(barsRef);
 
@@ -84,8 +110,13 @@ function FloorColumn({
   // How small a bar may get before wrapping into another sub column. Tuned
   // so a 1080p wall fits roughly sixty lots per area with both boards shown,
   // and about double that with a single board on screen.
-  const minH = big ? 15 : 11;
-  const minW = big ? 104 : 84;
+  const minH = big ? 15 * scale : 11;
+  /**
+   * Width follows the display, not the zoom. Scaling it with zoom used to cost
+   * a sub column, which forced more rows, which made the bars shorter and the
+   * text smaller. Turning the size up made the board harder to read.
+   */
+  const minW = big ? 104 * auto : 84;
 
   const maxSub = Math.max(1, Math.floor((box.w + GAP) / (minW + GAP)));
 
@@ -113,24 +144,45 @@ function FloorColumn({
     shown = overflow ? items.slice(0, capacity) : items;
     hidden = items.length - shown.length;
 
-    subCols = Math.max(
-      1,
-      Math.min(maxSub, Math.ceil(shown.length / Math.max(1, maxRows)))
-    );
-    rows = Math.max(1, Math.ceil(shown.length / subCols));
+    const maxBarH = 38 * scale;
+    const heightFor = (cols: number) => {
+      const r = Math.max(1, Math.ceil(shown.length / cols));
+      const natural = box.h > 0 ? (box.h - GAP * (r - 1)) / r : minH;
+      return { r, h: Math.min(natural, maxBarH) };
+    };
 
-    // With only a handful of lots the rows would stretch and the bars would
-    // end up absurdly tall, so they are capped and the leftover space is
-    // simply left empty at the bottom.
-    const natural = box.h > 0 ? (box.h - GAP * (rows - 1)) / rows : minH;
-    barH = Math.min(natural, 38);
+    /**
+     * Wrapping early makes bars taller, and taller bars mean bigger text.
+     * Filling one sub column to the brim before wrapping was leaving the text
+     * far smaller than the space allowed, which is what made a wall display
+     * hard to read. So the narrowest layout that reaches full bar height wins,
+     * and failing that the one that gets closest.
+     */
+    let best = 1;
+    let bestH = heightFor(1).h;
+    for (let c = 1; c <= maxSub; c++) {
+      const { h } = heightFor(c);
+      if (h >= maxBarH) {
+        best = c;
+        bestH = h;
+        break;
+      }
+      if (h > bestH) {
+        best = c;
+        bestH = h;
+      }
+    }
+
+    subCols = best;
+    rows = heightFor(best).r;
+    barH = bestH;
   }
 
-  const capped = !big || barH >= 38;
+  const capped = !big || barH >= 38 * scale;
 
   const fontPx = Math.max(
     big ? 8 : 9,
-    Math.min(big ? 15 : 12, barH * 0.42)
+    Math.min(big ? 17 * scale : 12, barH * (big ? 0.46 : 0.42))
   );
 
   return (
@@ -202,6 +254,7 @@ export function FloorColumnSet({
   scaleMs,
   onItemClick,
   big,
+  zoom,
 }: Props) {
   const running = groups.reduce((a, g) => a + g.runningCount, 0);
 
@@ -234,6 +287,7 @@ export function FloorColumnSet({
             kind={kind}
             scaleMs={scaleMs}
             big={Boolean(big)}
+            zoom={zoom ?? 1}
             onItemClick={onItemClick}
           />
         ))}
@@ -268,12 +322,51 @@ export default function FloorBoard({
 }) {
   const shell = useRef<HTMLDivElement>(null);
   const [full, setFull] = useState(false);
+  /** Show everything that touched the floor today, only what is running, or
+   *  only what has already moved on. */
+  const [state, setState] = useState<"both" | "live" | "done">("both");
+  /**
+   * Viewing distance is the one thing the board cannot work out for itself,
+   * so the size is adjustable and the choice sticks on that display.
+   */
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("apt.board.zoom"));
+    if (saved >= 0.7 && saved <= 2) setZoom(saved);
+  }, []);
+  const setZoomSaved = (z: number) => {
+    const clamped = Math.round(Math.min(2, Math.max(0.7, z)) * 20) / 20;
+    setZoom(clamped);
+    localStorage.setItem("apt.board.zoom", String(clamped));
+  };
   const [view, setView] = useState<"both" | "queue" | "process">("both");
   const [auto, setAuto] = useState(true);
   const [ago, setAgo] = useState(0);
 
   // One scale across both boards, so a bar's length means the same thing
   // whether it is queue or process.
+  /** Narrow the bars without recomputing anything, so the counts in the
+   *  column headers still describe what is on screen. */
+  const narrow = (groups: FloorGroup[]): FloorGroup[] =>
+    state === "both"
+      ? groups
+      : groups.map((g) => {
+          const items = g.items.filter((i) =>
+            state === "live" ? i.running : !i.running
+          );
+          return {
+            ...g,
+            items,
+            runningCount: items.filter((i) => i.running).length,
+            doneCount: items.filter((i) => !i.running).length,
+          };
+        });
+
+  const shownQueue = narrow(queueGroups);
+  const shownProcess = narrow(processGroups);
+
+  // Scale is taken from the unfiltered set, so a bar keeps the same length
+  // whichever view is on and the eye can compare across them.
   const scaleMs = Math.max(
     1,
     ...queueGroups.flatMap((g) => g.items.map((i) => i.ms)),
@@ -346,6 +439,31 @@ export default function FloorBoard({
           </button>
         </div>
 
+        <div className="seg">
+          <button
+            aria-pressed={state === "both"}
+            onClick={() => setState("both")}
+            title="Everything that touched the floor today"
+          >
+            Live &amp; Old
+          </button>
+          <button
+            aria-pressed={state === "live"}
+            onClick={() => setState("live")}
+            title="Only what is running right now"
+          >
+            <span className="live-dot" />
+            Live
+          </button>
+          <button
+            aria-pressed={state === "done"}
+            onClick={() => setState("done")}
+            title="Only what has already moved on"
+          >
+            Old
+          </button>
+        </div>
+
         <input
           type="date"
           className="input"
@@ -367,6 +485,26 @@ export default function FloorBoard({
           <RefreshCw size={15} />
         </button>
 
+        {full && (
+          <span className="zoom-ctl" title="Size for viewing distance">
+            <button
+              onClick={() => setZoomSaved(zoom - 0.1)}
+              disabled={zoom <= 0.7}
+              aria-label="Smaller"
+            >
+              <Minus size={14} />
+            </button>
+            <span className="zoom-val">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => setZoomSaved(zoom + 0.1)}
+              disabled={zoom >= 2}
+              aria-label="Larger"
+            >
+              <Plus size={14} />
+            </button>
+          </span>
+        )}
+
         <button className="btn sm primary" onClick={() => void toggleFull()}>
           {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           {full ? "Exit" : "Full screen"}
@@ -378,20 +516,22 @@ export default function FloorBoard({
           <FloorColumnSet
             title="Waiting"
             kind="queue"
-            groups={queueGroups}
+            groups={shownQueue}
             scaleMs={scaleMs}
             onItemClick={onItemClick}
             big={full}
+            zoom={zoom}
           />
         )}
         {(view === "both" || view === "process") && (
           <FloorColumnSet
             title="Being worked"
             kind="process"
-            groups={processGroups}
+            groups={shownProcess}
             scaleMs={scaleMs}
             onItemClick={onItemClick}
             big={full}
+            zoom={zoom}
           />
         )}
       </div>

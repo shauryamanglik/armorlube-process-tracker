@@ -1090,11 +1090,6 @@ function touchesDay(seg: Segment, from: number, to: number, now: number): boolea
 }
 
 /**
- * What is on the floor, grouped for the live board. Each item is one stretch,
- * so a lot sent back to queue twice shows twice, which is the truth of what
- * the floor looks like.
- */
-/**
  * "Area 1" means nothing to someone walking past a wall display, so the floor
  * board labels each area with the work that happens there.
  */
@@ -1126,6 +1121,99 @@ export function boardColumn(step: { step_name: string; area: string }): string {
   return OWN_COLUMN[step.step_name] ?? areaLabel(step.area);
 }
 
+/**
+ * Fold a lot's stretches at one place into the single bar that represents it.
+ *
+ * A lot sent back to queue twice has three queue stretches, and a lot can have
+ * records at two steps that share a board column. Emitting one bar per stretch
+ * put the same lot on the board several times and, worse, showed it as both
+ * finished and running at once. One bar per lot per column is the truth of
+ * what is standing where.
+ */
+type Agg = {
+  ref: string;
+  step: string;
+  ms: number;
+  running: boolean;
+  startedAt: string;
+  endedAt: string | null;
+  crew: Set<string>;
+};
+
+function foldInto(
+  bucket: Map<string, Agg>,
+  ref: string,
+  stepName: string,
+  seg: Segment,
+  ms: number
+) {
+  const cur = bucket.get(ref);
+  const open = !seg.ended_at;
+  const crew = [...(seg.started_by ?? []), ...(seg.ended_by ?? [])].filter(
+    Boolean
+  );
+
+  if (!cur) {
+    bucket.set(ref, {
+      ref,
+      step: stepName,
+      ms,
+      running: open,
+      startedAt: seg.started_at,
+      endedAt: seg.ended_at,
+      crew: new Set(crew),
+    });
+    return;
+  }
+
+  cur.ms += ms;
+  for (const c of crew) cur.crew.add(c);
+
+  // An open stretch anywhere means the lot is running here, and its clock
+  // is the one worth showing.
+  if (open) {
+    if (!cur.running || seg.started_at > cur.startedAt) {
+      cur.startedAt = seg.started_at;
+      cur.step = stepName;
+    }
+    cur.running = true;
+    cur.endedAt = null;
+  } else if (!cur.running) {
+    // Still finished: keep the latest finish, which is when it moved on.
+    if (!cur.endedAt || (seg.ended_at ?? "") > cur.endedAt) {
+      cur.endedAt = seg.ended_at;
+      cur.step = stepName;
+    }
+    if (seg.started_at < cur.startedAt) cur.startedAt = seg.started_at;
+  }
+}
+
+function toGroups(groups: Map<string, Map<string, Agg>>): FloorGroup[] {
+  return Array.from(groups.entries())
+    .map(([name, bucket]) => {
+      const items: FloorItem[] = Array.from(bucket.values()).map((a) => ({
+        ref: a.ref,
+        step: a.step,
+        ms: a.ms,
+        running: a.running,
+        startedAt: a.startedAt,
+        endedAt: a.endedAt,
+        crew: Array.from(a.crew),
+      }));
+      items.sort((x, y) => {
+        if (x.running !== y.running) return x.running ? -1 : 1;
+        return y.ms - x.ms;
+      });
+      return {
+        name,
+        items,
+        runningCount: items.filter((i) => i.running).length,
+        doneCount: items.filter((i) => !i.running).length,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function floorView(
   rows: Enriched[],
   kind: SegmentKind,
@@ -1137,12 +1225,12 @@ export function floorView(
   const { from, to } = dayBounds(day);
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
-  const groups = new Map<string, FloorItem[]>();
+  const groups = new Map<string, Map<string, Agg>>();
 
   for (const r of rows) {
     if (!r.step) continue;
-    const key =
-      groupBy === "area" ? boardColumn(r.step) : r.step.step_name;
+    if (r.log.deleted_at) continue;
+    const key = groupBy === "area" ? boardColumn(r.step) : r.step.step_name;
 
     for (const seg of r.segments) {
       if (seg.kind !== kind) continue;
@@ -1151,36 +1239,21 @@ export function floorView(
       const span = measureSpan(seg.started_at, seg.ended_at ?? nowIso, rules);
       if (!span) continue;
 
-      const list = groups.get(key) ?? [];
-      list.push({
-        ref: r.log.lot_id,
-        step: r.step.step_name,
-        ms: includeOffShift ? span.rawMs : span.businessMs,
-        running: !seg.ended_at,
-        startedAt: seg.started_at,
-        endedAt: seg.ended_at,
-        crew: [...new Set([...(seg.started_by ?? []), ...(seg.ended_by ?? [])])],
-      });
-      groups.set(key, list);
+      const bucket = groups.get(key) ?? new Map<string, Agg>();
+      foldInto(
+        bucket,
+        r.log.lot_id,
+        r.step.step_name,
+        seg,
+        includeOffShift ? span.rawMs : span.businessMs
+      );
+      groups.set(key, bucket);
     }
   }
 
-  return Array.from(groups.entries())
-    .map(([name, items]) => ({
-      name,
-      // Running first, then longest, so the things that need attention are
-      // at the top of every column.
-      items: items.sort((a, b) => {
-        if (a.running !== b.running) return a.running ? -1 : 1;
-        return b.ms - a.ms;
-      }),
-      runningCount: items.filter((i) => i.running).length,
-      doneCount: items.filter((i) => !i.running).length,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return toGroups(groups);
 }
 
-/** The same board for purchase orders, grouped by station. */
 export function floorViewPo(
   rows: EnrichedPo[],
   kind: SegmentKind,
@@ -1191,40 +1264,31 @@ export function floorViewPo(
   const { from, to } = dayBounds(day);
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
-  const groups = new Map<string, FloorItem[]>();
+  const groups = new Map<string, Map<string, Agg>>();
 
   for (const r of rows) {
     if (!r.step) continue;
+    if (r.po.deleted_at) continue;
+
     for (const seg of r.segments) {
       if (seg.kind !== kind) continue;
       if (!touchesDay(seg, from, to, now)) continue;
       const span = measureSpan(seg.started_at, seg.ended_at ?? nowIso, rules);
       if (!span) continue;
-      const list = groups.get(r.step.step_name) ?? [];
-      list.push({
-        ref: r.po.po_number,
-        step: r.step.step_name,
-        ms: includeOffShift ? span.rawMs : span.businessMs,
-        running: !seg.ended_at,
-        startedAt: seg.started_at,
-        endedAt: seg.ended_at,
-        crew: [...new Set([...(seg.started_by ?? []), ...(seg.ended_by ?? [])])],
-      });
-      groups.set(r.step.step_name, list);
+
+      const bucket = groups.get(r.step.step_name) ?? new Map<string, Agg>();
+      foldInto(
+        bucket,
+        r.po.po_number,
+        r.step.step_name,
+        seg,
+        includeOffShift ? span.rawMs : span.businessMs
+      );
+      groups.set(r.step.step_name, bucket);
     }
   }
 
-  return Array.from(groups.entries())
-    .map(([name, items]) => ({
-      name,
-      items: items.sort((a, b) => {
-        if (a.running !== b.running) return a.running ? -1 : 1;
-        return b.ms - a.ms;
-      }),
-      runningCount: items.filter((i) => i.running).length,
-      doneCount: items.filter((i) => !i.running).length,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return toGroups(groups);
 }
 
 /** Make sure every area shows, even the empty ones, so the board keeps shape. */

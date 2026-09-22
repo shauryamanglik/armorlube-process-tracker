@@ -2455,3 +2455,67 @@ tbody tr.clickable:hover {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ---------- board size control ---------- */
+
+.zoom-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  padding: 2px;
+  flex: none;
+}
+
+.zoom-ctl button {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.zoom-ctl button:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.zoom-ctl button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.zoom-val {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  min-width: 38px;
+  text-align: center;
+}
+
+.floor-shell.full .zoom-val {
+  font-size: clamp(12px, 0.8vw, 17px);
+  min-width: 52px;
+}
+
+.floor-shell.full .zoom-ctl button {
+  width: clamp(30px, 2.2vw, 44px);
+  height: clamp(30px, 2.2vw, 44px);
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--run);
+  display: inline-block;
+  animation: lb-blink 2s ease-in-out infinite;
+}
+
+@keyframes lb-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
