@@ -1714,26 +1714,7 @@ tbody tr.clickable:hover {
 .floor-shell.full .floor-bars {
   flex: 1 1 auto;
   min-height: 0;
-  /* Bars stretch to fill the column, but once there are more than will fit
-     at a readable height the column scrolls instead of cutting them off. */
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.floor-shell.full .floor-bar {
-  flex: 1 1 auto;
-  height: auto !important;
-  min-height: 38px;
-}
-
-/* a visible hint that a column holds more than is on screen */
-.floor-shell.full .floor-bars::-webkit-scrollbar {
-  width: 8px;
-}
-
-.floor-shell.full .floor-bars::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 4px;
+  overflow: hidden;
 }
 
 .floor-top {
@@ -1907,29 +1888,29 @@ tbody tr.clickable:hover {
   color: var(--text-faint);
 }
 
+/* A grid rather than a stack, so bars can wrap into side by side sub
+   columns when a single column would make them too short to read. Filling
+   goes down one sub column then across to the next. */
 .floor-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-auto-flow: column;
   min-height: 0;
   flex: 1 1 auto;
-  /* if a column somehow overflows, it scrolls rather than covering the
-     column beside it */
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 
 .floor-bar {
   position: relative;
   width: 100%;
+  height: 100%;
+  min-height: 0;
   border-radius: 4px;
   background: var(--surface-3);
   overflow: hidden;
   display: flex;
   align-items: center;
-  padding: 0 8px;
-  gap: 6px;
-  flex: none;
+  padding: 0 0.6em;
+  gap: 0.5em;
   text-align: left;
   transition: filter 0.12s ease;
 }
@@ -2006,8 +1987,34 @@ tbody tr.clickable:hover {
   line-height: 1;
 }
 
-.floor-bar {
-  font-size: 11.5px;
+/* The lot number is an identifier, so it reads as one: monospaced, tight
+   and even. The duration is a quantity, so it sits in the sans face with
+   tabular figures, which keeps the numbers aligned down the column and
+   stops the two being mistaken for each other at a distance. */
+.fb-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.fb-time {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92em;
+  opacity: 0.95;
+}
+
+.floor-more {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+  padding-top: 5px;
+  text-align: center;
+}
+
+.floor-shell.full .floor-more {
+  font-size: clamp(11px, 0.8vw, 16px);
 }
 
 /* the lot number gives way first, the duration never does */
@@ -2047,12 +2054,7 @@ tbody tr.clickable:hover {
   opacity: 0.9;
 }
 
-/* On a wall the text should scale with the screen, not sit at one size that
-   is right for a laptop and small on a 55 inch display. */
-.floor-shell.full .fb-label,
-.floor-shell.full .fb-time {
-  font-size: clamp(13px, 1.05vw, 24px);
-}
+/* Size comes from the bar, which knows how tall it ended up. */
 
 .floor-empty {
   font-size: 11.5px;
