@@ -263,6 +263,10 @@ export default function StepPanel({
       }
 
       const plan = planAction(segments, action, true, step);
+      if (plan.noop) {
+        onToast("Nothing is running here, so there is nothing to close.");
+        return;
+      }
       const ts = stamp();
       const res = await applyPlan(plan, { kind: "log", id: target.id }, ts, crew);
 

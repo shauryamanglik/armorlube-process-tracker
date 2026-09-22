@@ -312,6 +312,10 @@ export default function PoPanel({
       }
 
       const plan = planAction(segments, action, true, step);
+      if (plan.noop) {
+        onToast("Nothing is running here, so there is nothing to close.");
+        return;
+      }
       const ts = new Date().toISOString();
       const res = await applyPlan(plan, { kind: "po", id: target.id }, ts, crew);
 

@@ -30,10 +30,16 @@ export type Plan = {
   close: Segment | null;
   /** Interval to open, if any. */
   open: SegmentKind | null;
+  /** A stretch that starts and ends at the same instant, used when a phase
+   *  is finished that was never started. */
+  instant: SegmentKind | null;
   /** Human wording for the toast. */
   describes: string;
   /** True when the press does not follow the natural order. */
   outOfOrder: boolean;
+  /** True when the press would change nothing at all. Without this a button
+   *  could report success while leaving a timer running. */
+  noop: boolean;
 };
 
 /**
@@ -53,55 +59,97 @@ export function planAction(
   const anyQueue = ofKind(segments, "queue").length > 0;
   const anyProcess = ofKind(segments, "process").length > 0;
 
+  /**
+   * Every press must leave the record in a state that makes physical sense.
+   * The rule is simple: close whatever is open, then open what the press
+   * says. A press must never silently do nothing, because that is how a
+   * timer ends up running forever and the floor board fills with lots that
+   * are not there.
+   */
+  const openAny = openProcess ?? openQueue;
+
   switch (action) {
     case "queue_in":
       return {
-        // Close whatever is open, process or an earlier queue stretch. A
-        // record can never hold two open stretches of the same kind, which
-        // used to leave a lot showing as waiting forever.
-        close: openProcess ?? openQueue,
+        close: openAny,
         open: "queue",
+        instant: null,
         describes: openProcess ? "Back to queue" : "Queue in",
         outOfOrder: Boolean(openQueue),
+        noop: false,
       };
 
     case "back_to_queue":
       return {
-        close: openProcess ?? openQueue,
+        close: openAny,
         open: "queue",
+        instant: null,
         describes: "Back to queue",
         outOfOrder: !openProcess,
+        noop: false,
       };
 
     case "queue_out":
       // Ending the queue starts the process when the two are linked.
       return {
-        close: openQueue,
-        open: linked && linkable ? "process" : null,
-        describes: linked && linkable ? "Queue out and process in" : "Queue out",
+        close: openAny,
+        open: linked && linkable && !openProcess ? "process" : null,
+        instant: null,
+        describes:
+          linked && linkable && !openProcess
+            ? "Queue out and process in"
+            : "Queue out",
         outOfOrder: !openQueue,
+        noop: !openAny && !(linked && linkable),
       };
 
     case "process_in":
       // Starting the process closes an open queue, which is the same
-      // transition queue out performs. If a process stretch is somehow
-      // already open, that is closed instead so two never run at once.
+      // transition queue out performs.
       return {
-        close: openProcess ?? openQueue,
+        close: openAny,
         open: "process",
+        instant: null,
         describes:
           openQueue && linked && linkable
             ? "Process in and queue out"
             : "Process in",
         outOfOrder: Boolean(openProcess) || (step.has_queue && !anyQueue),
+        noop: false,
       };
 
     case "process_out":
+      if (openProcess) {
+        return {
+          close: openProcess,
+          open: null,
+          instant: null,
+          describes: "Process out",
+          outOfOrder: false,
+          noop: false,
+        };
+      }
+      if (openQueue) {
+        // Finished without ever starting the process. The queue has to end,
+        // and a zero length process stretch records that the work completed
+        // here even though nobody logged it starting. Leaving the queue open
+        // was the old behaviour and it stranded the lot on the board.
+        return {
+          close: openQueue,
+          open: null,
+          instant: "process",
+          describes: "Process out, queue closed",
+          outOfOrder: true,
+          noop: false,
+        };
+      }
       return {
-        close: openProcess,
+        close: null,
         open: null,
-        describes: openProcess ? "Process out" : "Process out",
-        outOfOrder: !openProcess && !anyProcess,
+        instant: null,
+        describes: "Nothing to close",
+        outOfOrder: !anyProcess,
+        noop: true,
       };
   }
 }
@@ -132,6 +180,27 @@ export async function applyPlan(
         kind: "update",
         table: "segments",
         id: plan.close.id,
+        payload,
+        at: Date.now(),
+      });
+      queued = true;
+    }
+  }
+
+  if (plan.instant) {
+    const payload = {
+      [parentCol]: parent.id,
+      kind: plan.instant,
+      started_at: ts,
+      ended_at: ts,
+      started_by: crew,
+      ended_by: crew,
+    };
+    const { error } = await supabase.from("segments").insert(payload);
+    if (error) {
+      enqueue({
+        kind: "insert",
+        table: "segments",
         payload,
         at: Date.now(),
       });

@@ -193,14 +193,6 @@ function FloorColumn({
           {group.runningCount > 0 && (
             <span className="fc-live">{group.runningCount}</span>
           )}
-          {group.staleCount > 0 && (
-            <span
-              className="fc-stale"
-              title="Open since an earlier day, probably never closed"
-            >
-              {group.staleCount}
-            </span>
-          )}
           {group.doneCount > 0 && (
             <span className="fc-done">{group.doneCount}</span>
           )}
@@ -227,19 +219,15 @@ function FloorColumn({
             return (
               <button
                 key={`${it.ref}-${i}`}
-                className={`floor-bar ${
-                  it.stale ? "stale" : it.running ? "live" : "done"
-                }`}
+                className={`floor-bar ${it.running ? "live" : "done"}`}
                 style={{ fontSize: `${fontPx}px` }}
-                title={
-                  it.stale
-                    ? `${it.ref} at ${it.step}, open since ${formatStamp(
-                        it.startedAt
-                      )}. Started on an earlier day, so this is probably a missed button press.`
-                    : `${it.ref} at ${it.step}, ${formatDuration(
-                        it.ms
-                      )}, started ${formatClock(it.startedAt)}`
-                }
+                title={`${it.ref} at ${it.step}. Queue ${formatDuration(
+                  it.queueMs
+                )}, process ${formatDuration(it.processMs)}. ${
+                  it.running
+                    ? `Running since ${formatStamp(it.startedAt)}`
+                    : "Moved on"
+                }`}
                 onClick={() => onItemClick?.(it.ref)}
               >
                 <span
