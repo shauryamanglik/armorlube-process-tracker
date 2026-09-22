@@ -47,6 +47,7 @@ import {
   lotStatuses,
   padGroups,
   poStatuses,
+  staleOpenStretches,
   slowestPos,
   waitShare,
   summarisePos,
@@ -67,6 +68,8 @@ import {
   formatStamp,
   todayInPhoenix,
   toHours,
+  isoToPhoenixDate,
+  phoenixToIso,
 } from "@/lib/time";
 import { crewOf } from "@/lib/segments";
 import { liveSteps } from "@/lib/types";
@@ -504,6 +507,45 @@ export default function DashboardPage() {
     opNames,
   ]);
 
+  /** Timers still running that were started on an earlier day. */
+  const stale = useMemo(
+    () => staleOpenStretches(rows, poRows, floorDay),
+    [rows, poRows, floorDay]
+  );
+  const [closing, setClosing] = useState(false);
+
+  /**
+   * Close a stretch at a chosen moment. Defaults to the end of the shift on
+   * the day it started, which is the most likely truth for a lot someone
+   * finished and walked away from.
+   */
+  async function closeStretch(id: string, at: string) {
+    const { error } = await supabase
+      .from("segments")
+      .update({ ended_at: at })
+      .eq("id", id);
+    if (error) setLoadError("Could not close that stretch.");
+  }
+
+  async function closeAllStale() {
+    if (
+      !window.confirm(
+        `Close ${stale.length} stretches at the end of the shift on the day each started? This changes recorded times and cannot be undone automatically.`
+      )
+    )
+      return;
+    setClosing(true);
+    try {
+      for (const st of stale) {
+        const day = isoToPhoenixDate(st.startedAt);
+        await closeStretch(st.segmentId, phoenixToIso(day, rules.work_end));
+      }
+      await load();
+    } finally {
+      setClosing(false);
+    }
+  }
+
   const controlProps = { metric, setMetric, agg, setAgg };
 
   /**
@@ -753,6 +795,81 @@ export default function DashboardPage() {
             }
           }}
         />
+
+        {stale.length > 0 && (
+          <section className="panel stack stale-panel">
+            <div className="row">
+              <TriangleAlert size={17} color="#e5484d" />
+              <strong style={{ fontSize: 15 }}>
+                {stale.length} timer{stale.length === 1 ? "" : "s"} still
+                running from an earlier day
+              </strong>
+              <div className="spacer" />
+              <button
+                className="btn sm danger"
+                disabled={closing}
+                onClick={() => void closeAllStale()}
+              >
+                {closing ? "Closing" : "Close all at shift end"}
+              </button>
+            </div>
+            <p className="hint" style={{ margin: 0, maxWidth: "80ch" }}>
+              These are showing on the board as work that has been running for
+              days, which is why its counts are higher than what is actually on
+              the floor. Almost always it means an out button was never pressed.
+              Closing one sets its end time to{" "}
+              <strong>{rules.work_end} on the day it started</strong>. Check the
+              list first, because this rewrites recorded times.
+            </p>
+            <div className="table-wrap scroll-y" style={{ maxHeight: 280 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Type</th>
+                    <th>Step</th>
+                    <th>Phase</th>
+                    <th>Open since</th>
+                    <th>Age</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {stale.map((st) => (
+                    <tr key={st.segmentId}>
+                      <td className="mono">{st.ref}</td>
+                      <td>{st.isPo ? "Order" : "Lot"}</td>
+                      <td>{st.step}</td>
+                      <td>
+                        <span className={`state-pill ${st.kind}`}>
+                          {st.kind === "queue" ? "Queue" : "Process"}
+                        </span>
+                      </td>
+                      <td className="mono">{formatStamp(st.startedAt)}</td>
+                      <td>{formatDuration(st.ageMs)}</td>
+                      <td>
+                        <button
+                          className="btn sm"
+                          disabled={closing}
+                          onClick={async () => {
+                            const day = isoToPhoenixDate(st.startedAt);
+                            await closeStretch(
+                              st.segmentId,
+                              phoenixToIso(day, rules.work_end)
+                            );
+                            await load();
+                          }}
+                        >
+                          Close
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* filters */}
         <section className="panel stack">

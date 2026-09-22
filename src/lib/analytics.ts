@@ -1063,13 +1063,19 @@ export type FloorItem = {
   startedAt: string;
   endedAt: string | null;
   crew: string[];
+  /** Running, but the stretch began on an earlier day. Almost always a
+   *  missed button press rather than work that truly ran for days. */
+  stale?: boolean;
 };
 
 export type FloorGroup = {
   name: string;
   items: FloorItem[];
+  /** Running and started today. */
   runningCount: number;
   doneCount: number;
+  /** Running but opened on an earlier day, so probably never closed. */
+  staleCount: number;
 };
 
 /** Phoenix day bounds as real instants. */
@@ -1188,7 +1194,10 @@ function foldInto(
   }
 }
 
-function toGroups(groups: Map<string, Map<string, Agg>>): FloorGroup[] {
+function toGroups(
+  groups: Map<string, Map<string, Agg>>,
+  dayStart = 0
+): FloorGroup[] {
   return Array.from(groups.entries())
     .map(([name, bucket]) => {
       const items: FloorItem[] = Array.from(bucket.values()).map((a) => ({
@@ -1199,16 +1208,20 @@ function toGroups(groups: Map<string, Map<string, Agg>>): FloorGroup[] {
         startedAt: a.startedAt,
         endedAt: a.endedAt,
         crew: Array.from(a.crew),
+        stale: a.running && dayStart > 0 && new Date(a.startedAt).getTime() < dayStart,
       }));
       items.sort((x, y) => {
         if (x.running !== y.running) return x.running ? -1 : 1;
+        // Genuinely running work first, suspected missed presses after it.
+        if (Boolean(x.stale) !== Boolean(y.stale)) return x.stale ? 1 : -1;
         return y.ms - x.ms;
       });
       return {
         name,
         items,
-        runningCount: items.filter((i) => i.running).length,
+        runningCount: items.filter((i) => i.running && !i.stale).length,
         doneCount: items.filter((i) => !i.running).length,
+        staleCount: items.filter((i) => i.stale).length,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1230,6 +1243,10 @@ export function floorView(
   for (const r of rows) {
     if (!r.step) continue;
     if (r.log.deleted_at) continue;
+    // Oil/Shipping shares Area 5 with defixturing but never holds lots, so
+    // any stray lot record there must not swell the defixturing column.
+    if (r.step.tracks_lots === false) continue;
+    if (r.step.active === false) continue;
     const key = groupBy === "area" ? boardColumn(r.step) : r.step.step_name;
 
     for (const seg of r.segments) {
@@ -1251,7 +1268,7 @@ export function floorView(
     }
   }
 
-  return toGroups(groups);
+  return toGroups(groups, from);
 }
 
 export function floorViewPo(
@@ -1288,7 +1305,7 @@ export function floorViewPo(
     }
   }
 
-  return toGroups(groups);
+  return toGroups(groups, from);
 }
 
 /** Make sure every area shows, even the empty ones, so the board keeps shape. */
@@ -1296,6 +1313,76 @@ export function padGroups(groups: FloorGroup[], names: string[]): FloorGroup[] {
   const have = new Map(groups.map((g) => [g.name, g]));
   return names.map(
     (n) =>
-      have.get(n) ?? { name: n, items: [], runningCount: 0, doneCount: 0 }
+      have.get(n) ?? {
+        name: n,
+        items: [],
+        runningCount: 0,
+        doneCount: 0,
+        staleCount: 0,
+      }
   );
+}
+
+
+/**
+ * Stretches still open that began before today. On a board these read as work
+ * running for days, which is almost never true: it is a button that was never
+ * pressed. Surfacing them is the only way the floor view can be trusted.
+ */
+export type OpenStretch = {
+  segmentId: string;
+  kind: SegmentKind;
+  ref: string;
+  isPo: boolean;
+  step: string;
+  startedAt: string;
+  ageMs: number;
+};
+
+export function staleOpenStretches(
+  rows: Enriched[],
+  poRows: EnrichedPo[],
+  day: string,
+  now: number = Date.now()
+): OpenStretch[] {
+  const dayStart = new Date(phoenixToIso(day, "00:00")).getTime();
+  const out: OpenStretch[] = [];
+
+  for (const r of rows) {
+    if (r.log.deleted_at || !r.step) continue;
+    for (const sg of r.segments) {
+      if (sg.ended_at) continue;
+      const t = new Date(sg.started_at).getTime();
+      if (t >= dayStart) continue;
+      out.push({
+        segmentId: sg.id,
+        kind: sg.kind,
+        ref: r.log.lot_id,
+        isPo: false,
+        step: r.step.step_name,
+        startedAt: sg.started_at,
+        ageMs: now - t,
+      });
+    }
+  }
+
+  for (const r of poRows) {
+    if (r.po.deleted_at || !r.step) continue;
+    for (const sg of r.segments) {
+      if (sg.ended_at) continue;
+      const t = new Date(sg.started_at).getTime();
+      if (t >= dayStart) continue;
+      out.push({
+        segmentId: sg.id,
+        kind: sg.kind,
+        ref: r.po.po_number,
+        isPo: true,
+        step: r.step.step_name,
+        startedAt: sg.started_at,
+        ageMs: now - t,
+      });
+    }
+  }
+
+  return out.sort((a, b) => b.ageMs - a.ageMs);
 }

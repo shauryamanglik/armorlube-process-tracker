@@ -2519,3 +2519,45 @@ tbody tr.clickable:hover {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
+/* ---------- stretches left open on an earlier day ----------
+   Shown, because hiding them would hide a real data problem, but marked
+   apart from genuinely running work so the live counts stay honest. */
+
+.floor-bar.stale {
+  box-shadow: inset 3px 0 0 var(--stop);
+  opacity: 0.9;
+}
+
+.floor-bar.stale .fb-fill {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(229, 72, 77, 0.3),
+    rgba(229, 72, 77, 0.3) 6px,
+    rgba(229, 72, 77, 0.14) 6px,
+    rgba(229, 72, 77, 0.14) 12px
+  );
+}
+
+.floor-bar.stale .fb-label,
+.floor-bar.stale .fb-time {
+  color: #ffc9cb;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.fc-stale {
+  background: rgba(229, 72, 77, 0.18);
+  color: #ff9a9d;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-weight: 700;
+}
+
+.stale-panel {
+  border-color: rgba(229, 72, 77, 0.38);
+  background: linear-gradient(
+    180deg,
+    rgba(229, 72, 77, 0.06),
+    transparent 60%
+  );
+}

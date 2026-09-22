@@ -56,7 +56,10 @@ export function planAction(
   switch (action) {
     case "queue_in":
       return {
-        close: openProcess,
+        // Close whatever is open, process or an earlier queue stretch. A
+        // record can never hold two open stretches of the same kind, which
+        // used to leave a lot showing as waiting forever.
+        close: openProcess ?? openQueue,
         open: "queue",
         describes: openProcess ? "Back to queue" : "Queue in",
         outOfOrder: Boolean(openQueue),
@@ -64,7 +67,7 @@ export function planAction(
 
     case "back_to_queue":
       return {
-        close: openProcess,
+        close: openProcess ?? openQueue,
         open: "queue",
         describes: "Back to queue",
         outOfOrder: !openProcess,
@@ -81,9 +84,10 @@ export function planAction(
 
     case "process_in":
       // Starting the process closes an open queue, which is the same
-      // transition queue out performs.
+      // transition queue out performs. If a process stretch is somehow
+      // already open, that is closed instead so two never run at once.
       return {
-        close: openQueue,
+        close: openProcess ?? openQueue,
         open: "process",
         describes:
           openQueue && linked && linkable

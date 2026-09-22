@@ -14,7 +14,7 @@ import {
   Rows3,
 } from "lucide-react";
 import type { FloorGroup } from "@/lib/analytics";
-import { formatDuration, formatClock } from "@/lib/time";
+import { formatDuration, formatClock, formatStamp } from "@/lib/time";
 
 /**
  * The floor board is meant to be readable from across a room, so it is built
@@ -193,6 +193,14 @@ function FloorColumn({
           {group.runningCount > 0 && (
             <span className="fc-live">{group.runningCount}</span>
           )}
+          {group.staleCount > 0 && (
+            <span
+              className="fc-stale"
+              title="Open since an earlier day, probably never closed"
+            >
+              {group.staleCount}
+            </span>
+          )}
           {group.doneCount > 0 && (
             <span className="fc-done">{group.doneCount}</span>
           )}
@@ -219,11 +227,19 @@ function FloorColumn({
             return (
               <button
                 key={`${it.ref}-${i}`}
-                className={`floor-bar ${it.running ? "live" : "done"}`}
+                className={`floor-bar ${
+                  it.stale ? "stale" : it.running ? "live" : "done"
+                }`}
                 style={{ fontSize: `${fontPx}px` }}
-                title={`${it.ref} at ${it.step}, ${formatDuration(
-                  it.ms
-                )}, started ${formatClock(it.startedAt)}`}
+                title={
+                  it.stale
+                    ? `${it.ref} at ${it.step}, open since ${formatStamp(
+                        it.startedAt
+                      )}. Started on an earlier day, so this is probably a missed button press.`
+                    : `${it.ref} at ${it.step}, ${formatDuration(
+                        it.ms
+                      )}, started ${formatClock(it.startedAt)}`
+                }
                 onClick={() => onItemClick?.(it.ref)}
               >
                 <span
