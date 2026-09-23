@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cog, Hourglass, Inbox, Search, Send } from "lucide-react";
+import { Check, Cog, Hourglass, Plus, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   LOT_HINT,
@@ -256,7 +256,7 @@ export default function OperatorPoPanel({
               <span className="op-pill">{registry.length}</span>
             </button>
             <button aria-pressed={scope === "new"} onClick={() => setScope("new")}>
-              <Send size={14} />
+              <Plus size={14} />
               New
             </button>
           </div>
@@ -289,7 +289,7 @@ export default function OperatorPoPanel({
                 setTyped("");
               }}
             >
-              <Send size={16} />
+              <Check size={16} />
               Use this number
             </button>
             {typed && !LOT_PATTERN.test(typed) && (
@@ -314,9 +314,7 @@ export default function OperatorPoPanel({
               >
                 <span className="mono op-lot-id">{r.po_number}</span>
                 <span className={`op-tag ${r.ready ? "ready" : r.tone}`}>
-                  {r.ready ? (
-                    <Inbox size={12} />
-                  ) : r.tone === "process" ? (
+                  {r.ready ? null : r.tone === "process" ? (
                     <Cog size={12} />
                   ) : r.tone === "queue" ? (
                     <Hourglass size={12} />
@@ -346,7 +344,11 @@ export default function OperatorPoPanel({
 
       {!ready && (
         <div className="op-hint">
-          {crew.length === 0 ? "Tap your name to begin" : "Choose an order"}
+          {crew.length === 0
+            ? "Tap your name above to begin"
+            : scope === "new"
+            ? "Type an order number and tap Use this number"
+            : "Choose an order"}
         </div>
       )}
 

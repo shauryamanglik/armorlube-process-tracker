@@ -214,15 +214,21 @@ export default function OperatorPanel({
         id = (data as LogRow).id;
       }
 
-      const ts = new Date().toISOString();
-      await supabase.from("segments").insert({
-        log_id: id,
-        kind: "process",
-        started_at: ts,
-        ended_at: ts,
-        started_by: crew,
-        ended_by: crew,
-      });
+      const already = await loadSegments({ kind: "log", id });
+      const ts = already.length
+        ? already[0].started_at
+        : new Date().toISOString();
+
+      if (!already.length) {
+        await supabase.from("segments").insert({
+          log_id: id,
+          kind: "process",
+          started_at: ts,
+          ended_at: ts,
+          started_by: crew,
+          ended_by: crew,
+        });
+      }
 
       setTyped("");
       setLotId(lot);
@@ -420,7 +426,9 @@ export default function OperatorPanel({
 
         {!canSend && (
           <div className="op-hint">
-            {crew.length === 0 ? "Tap your name to begin" : "Type a lot number"}
+            {crew.length === 0
+              ? "Tap your name above to begin"
+              : "Type a lot number"}
           </div>
         )}
 

@@ -111,14 +111,18 @@ export function ActionRow({
       )}
       <button
         className="op-btn start"
-        disabled={!ready || busy || running}
+        disabled={!ready || busy || running || (showQueue && !waiting)}
         onClick={() => onPress("start")}
       >
         <Play size={26} />
         <span>
           <span className="op-btn-main">Start</span>
           <span className="op-btn-sub">
-            {running ? "already running" : "begin work"}
+            {running
+              ? "already running"
+              : showQueue && !waiting
+              ? "queue it in first"
+              : "begin work"}
           </span>
         </span>
       </button>
