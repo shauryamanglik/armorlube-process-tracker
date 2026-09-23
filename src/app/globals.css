@@ -2918,3 +2918,96 @@ tbody tr.clickable:hover {
     font-size: 21px;
   }
 }
+
+/* ---------- four buttons when purchase orders need a queue ---------- */
+
+.op-actions.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.op-btn.queue {
+  background: #6b5a2a;
+  border-color: #8a7436;
+}
+
+.op-actions.four .op-btn-main {
+  font-size: 20px;
+}
+
+.op-actions.four .op-btn {
+  gap: 9px;
+}
+
+/* ---------- making a lot or an order ---------- */
+
+.op-make {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 20px;
+}
+
+.op-make-k {
+  display: block;
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.op-make-in {
+  font-size: 30px;
+  letter-spacing: 0.06em;
+  padding: 16px;
+  text-align: center;
+}
+
+.op-btn.op-send {
+  min-height: 104px;
+}
+
+/* ---------- finishing a lot or an order ---------- */
+
+.end-modal {
+  max-width: 480px;
+}
+
+.end-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px;
+  border-radius: var(--r-lg);
+  border: 1.5px solid transparent;
+  text-align: left;
+  transition: filter 0.1s ease;
+}
+
+.end-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.end-btn.primary {
+  background: #1a9c56;
+  border-color: #27b569;
+  color: #fff;
+}
+
+.end-btn.quiet {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-dim);
+}
+
+.end-main {
+  display: block;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.end-sub {
+  display: block;
+  font-size: 12.5px;
+  opacity: 0.85;
+  margin-top: 2px;
+}

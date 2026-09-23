@@ -21,6 +21,7 @@ import { openSegment } from "@/lib/segments";
 import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
+import EndConfirm from "./EndConfirm";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
 
 type Here = {
@@ -59,6 +60,9 @@ export default function OperatorPanel({
     null
   );
   const [routeBusy, setRouteBusy] = useState(false);
+  const [ending, setEnding] = useState<{ lot: string; stamp: string } | null>(
+    null
+  );
 
   // Lots are created at the first step only. Everywhere else the number is
   // picked from a list, because typing a number that already exists is the
@@ -162,6 +166,74 @@ export default function OperatorPanel({
   const needsBlast = step.has_blast_type && !effectiveBlast;
   const ready = crew.length > 0 && lotValid && !needsBlast;
 
+  /**
+   * Lots are born here. There is no work to time at this station, so the whole
+   * job is a name, a number and a button: the lot is stamped into existence
+   * and handed to the floor.
+   */
+  async function sendToFloor() {
+    if (busy) return;
+    const lot = normalizeLot(typed || lotId);
+    if (crew.length === 0) {
+      onToast("Tap your name first.");
+      return;
+    }
+    if (!LOT_PATTERN.test(lot)) {
+      onToast(`Enter a lot number. ${LOT_HINT}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data: existing } = await supabase
+        .from("logs")
+        .select("id")
+        .eq("step_id", step.id)
+        .eq("lot_id", lot)
+        .is("deleted_at", null)
+        .limit(1);
+
+      let id: string;
+      if (existing?.length) {
+        id = existing[0].id as string;
+      } else {
+        const { data, error } = await supabase
+          .from("logs")
+          .insert({
+            step_id: step.id,
+            operator_id: crew[0],
+            lot_id: lot,
+            log_date: todayInPhoenix(),
+            pass_no: 1,
+          })
+          .select()
+          .single();
+        if (error || !data) {
+          onToast("Could not create that lot. Check the connection.");
+          return;
+        }
+        id = (data as LogRow).id;
+      }
+
+      const ts = new Date().toISOString();
+      await supabase.from("segments").insert({
+        log_id: id,
+        kind: "process",
+        started_at: ts,
+        ended_at: ts,
+        started_by: crew,
+        ended_by: crew,
+      });
+
+      setTyped("");
+      setLotId(lot);
+      await loadHere();
+      onLotsChanged();
+      setRouting({ lot, stamp: ts });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function press(a: OpAction) {
     if (busy || !ready) return;
     setBusy(true);
@@ -210,7 +282,7 @@ export default function OperatorPanel({
       onLotsChanged();
 
       if (a === "stop" && !openSegment(fresh)) {
-        if (isEndOfLine) setLotId("");
+        if (isEndOfLine) setEnding({ lot: lotId, stamp: ts });
         else setRouting({ lot: lotId, stamp: ts });
       }
     } finally {
@@ -303,6 +375,73 @@ export default function OperatorPanel({
   }
 
   const openQ = openSegment(segments, "queue");
+
+  if (step.release_only) {
+    const lot = normalizeLot(typed);
+    const canSend = crew.length > 0 && LOT_PATTERN.test(lot);
+    return (
+      <div className="op-wrap">
+        <CrewRow operators={operators} value={crew} onChange={setCrew} />
+
+        <div className="op-make">
+          <label className="op-make-k">New lot number</label>
+          <input
+            className="input mono op-make-in"
+            placeholder="000000-00"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            value={typed}
+            onChange={(e) => setTyped(normalizeLot(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSend) void sendToFloor();
+            }}
+          />
+          {typed && !LOT_PATTERN.test(lot) && (
+            <div className="err" style={{ marginTop: 8 }}>
+              {LOT_HINT}
+            </div>
+          )}
+        </div>
+
+        <button
+          className="op-btn start op-send"
+          disabled={!canSend || busy}
+          onClick={() => void sendToFloor()}
+        >
+          <Send size={28} />
+          <span>
+            <span className="op-btn-main">Send to floor</span>
+            <span className="op-btn-sub">
+              Creates the lot and hands it to the next step
+            </span>
+          </span>
+        </button>
+
+        {!canSend && (
+          <div className="op-hint">
+            {crew.length === 0 ? "Tap your name to begin" : "Type a lot number"}
+          </div>
+        )}
+
+        {routing && (
+          <RouteDialog
+            lotId={routing.lot}
+            from={step}
+            steps={allSteps}
+            stamp={formatClock(routing.stamp)}
+            busy={routeBusy}
+            onHold={() => {
+              setRouting(null);
+              setLotId("");
+              onToast(`${routing.lot} created, holding here`);
+            }}
+            onConfirm={(c) => void routeTo(c)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="op-wrap">
@@ -441,6 +580,25 @@ export default function OperatorPanel({
             ? "Choose a blast type"
             : ""}
         </div>
+      )}
+
+      {ending && (
+        <EndConfirm
+          reference={ending.lot}
+          kind="lot"
+          stepName={step.step_name}
+          busy={busy}
+          onEnd={() => {
+            onToast(`${ending.lot} finished and off the line`);
+            setEnding(null);
+            setLotId("");
+          }}
+          onRework={() => {
+            setRouting({ lot: ending.lot, stamp: ending.stamp });
+            setEnding(null);
+          }}
+          onCancel={() => setEnding(null)}
+        />
       )}
 
       {routing && (

@@ -17,6 +17,7 @@ import { formatClock, todayInPhoenix } from "@/lib/time";
 import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
+import EndConfirm from "./EndConfirm";
 
 type Row = {
   po_number: string;
@@ -38,7 +39,10 @@ export default function OperatorPoPanel({
   const [crew, setCrew] = useState<string[]>([]);
   const [poNumber, setPoNumber] = useState("");
   const [typed, setTyped] = useState("");
-  const [scope, setScope] = useState<"here" | "all">("here");
+  const [scope, setScope] = useState<"here" | "all" | "new">(
+    step.is_entry ? "new" : "here"
+  );
+  const [ending, setEnding] = useState<string | null>(null);
 
   const [registry, setRegistry] = useState<PoRegistryRow[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -167,6 +171,8 @@ export default function OperatorPoPanel({
 
   const valid = LOT_PATTERN.test(poNumber);
   const ready = crew.length > 0 && valid;
+  /** Orders finish at the last station that handles them. */
+  const isLastStation = !step.is_entry;
 
   async function press(a: OpAction) {
     if (busy || !ready) return;
@@ -192,7 +198,9 @@ export default function OperatorPoPanel({
       }
 
       const action =
-        a === "start"
+        a === "queue"
+          ? "queue_in"
+          : a === "start"
           ? "process_in"
           : a === "pause"
           ? "back_to_queue"
@@ -202,7 +210,9 @@ export default function OperatorPoPanel({
       const res = await applyPlan(plan, { kind: "po", id: target.id }, ts, crew);
 
       const said =
-        a === "start"
+        a === "queue"
+          ? `${poNumber} queued at ${step.step_name}`
+          : a === "start"
           ? `Started ${poNumber}`
           : a === "pause"
           ? `${poNumber} paused`
@@ -211,7 +221,12 @@ export default function OperatorPoPanel({
 
       setSegments(await loadSegments({ kind: "po", id: target.id }));
       await load();
-      if (a === "stop") setPoNumber("");
+      // Stopping at the shipping end finishes the order, so confirm rather
+      // than closing it silently.
+      if (a === "stop") {
+        if (isLastStation) setEnding(poNumber);
+        else setPoNumber("");
+      }
     } finally {
       setBusy(false);
     }
@@ -240,9 +255,50 @@ export default function OperatorPoPanel({
               All orders
               <span className="op-pill">{registry.length}</span>
             </button>
+            <button aria-pressed={scope === "new"} onClick={() => setScope("new")}>
+              <Send size={14} />
+              New
+            </button>
           </div>
         </div>
 
+        {scope === "new" ? (
+          <div className="op-make" style={{ height: 196 }}>
+            <label className="op-make-k">New order number</label>
+            <input
+              className="input mono op-make-in"
+              placeholder="Order number"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              value={typed}
+              onChange={(e) => setTyped(normalizeLot(e.target.value))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && LOT_PATTERN.test(typed)) {
+                  setPoNumber(typed);
+                  setTyped("");
+                }
+              }}
+            />
+            <button
+              className="btn primary"
+              style={{ marginTop: 10 }}
+              disabled={!LOT_PATTERN.test(typed)}
+              onClick={() => {
+                setPoNumber(typed);
+                setTyped("");
+              }}
+            >
+              <Send size={16} />
+              Use this number
+            </button>
+            {typed && !LOT_PATTERN.test(typed) && (
+              <div className="err" style={{ marginTop: 8 }}>
+                {LOT_HINT}
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="op-lot-list">
           {listed.length === 0 ? (
             <div className="op-none">
@@ -271,32 +327,6 @@ export default function OperatorPoPanel({
             ))
           )}
         </div>
-
-        <div className="op-type">
-          <input
-            className="input mono"
-            placeholder="New order number"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            value={typed}
-            onChange={(e) => setTyped(normalizeLot(e.target.value))}
-          />
-          <button
-            className="btn primary"
-            disabled={!LOT_PATTERN.test(typed)}
-            onClick={() => {
-              setPoNumber(typed);
-              setTyped("");
-            }}
-          >
-            <Send size={16} />
-            Use
-          </button>
-        </div>
-        {typed && !LOT_PATTERN.test(typed) && (
-          <div className="err" style={{ fontSize: 12 }}>
-            {LOT_HINT}
-          </div>
         )}
       </div>
 
@@ -310,12 +340,29 @@ export default function OperatorPoPanel({
         ready={ready}
         busy={busy}
         onPress={(a) => void press(a)}
+        finalStep={isLastStation}
+        showQueue
       />
 
       {!ready && (
         <div className="op-hint">
           {crew.length === 0 ? "Tap your name to begin" : "Choose an order"}
         </div>
+      )}
+
+      {ending && (
+        <EndConfirm
+          reference={ending}
+          kind="order"
+          stepName={step.step_name}
+          busy={busy}
+          onEnd={() => {
+            onToast(`${ending} complete`);
+            setEnding(null);
+            setPoNumber("");
+          }}
+          onCancel={() => setEnding(null)}
+        />
       )}
     </div>
   );

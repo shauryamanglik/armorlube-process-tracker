@@ -18,7 +18,7 @@ import { openSegment, rollup } from "@/lib/segments";
  * something the system already knows.
  */
 
-export type OpAction = "start" | "pause" | "stop";
+export type OpAction = "queue" | "start" | "pause" | "stop";
 
 export function StatusStrip({
   segments,
@@ -74,6 +74,7 @@ export function ActionRow({
   busy,
   onPress,
   finalStep,
+  showQueue,
 }: {
   segments: Segment[];
   /** A name and a lot are chosen. */
@@ -81,11 +82,33 @@ export function ActionRow({
   busy: boolean;
   onPress: (a: OpAction) => void;
   finalStep?: boolean;
+  /**
+   * Purchase orders are not handed on automatically the way lots are, so
+   * the shipping station needs a way to say an order has arrived and is
+   * waiting. Lots never show this.
+   */
+  showQueue?: boolean;
 }) {
   const running = Boolean(openSegment(segments, "process"));
+  const waiting = Boolean(openSegment(segments, "queue"));
 
   return (
-    <div className="op-actions">
+    <div className={`op-actions ${showQueue ? "four" : ""}`}>
+      {showQueue && (
+        <button
+          className="op-btn queue"
+          disabled={!ready || busy || running || waiting}
+          onClick={() => onPress("queue")}
+        >
+          <Hourglass size={24} />
+          <span>
+            <span className="op-btn-main">Queue in</span>
+            <span className="op-btn-sub">
+              {waiting ? "already waiting" : "arrived, waiting"}
+            </span>
+          </span>
+        </button>
+      )}
       <button
         className="op-btn start"
         disabled={!ready || busy || running}
