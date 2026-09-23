@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cog, Hourglass, Search, Send, Wind } from "lucide-react";
+import { Cog, Factory, Hourglass, Search, Send, Wind } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   exitField,
@@ -11,6 +11,8 @@ import {
   normalizeLot,
   type ActiveLot,
   type BlastType,
+  type Emperion,
+  EMPERIONS,
   type LogRow,
   type Operator,
   type Segment,
@@ -49,6 +51,7 @@ export default function OperatorPanel({
   const [crew, setCrew] = useState<string[]>([]);
   const [lotId, setLotId] = useState("");
   const [blastType, setBlastType] = useState<BlastType | "">("");
+  const [emperion, setEmperion] = useState<Emperion | "">("");
   const [scope, setScope] = useState<"here" | "all">("here");
   const [typed, setTyped] = useState("");
 
@@ -164,7 +167,11 @@ export default function OperatorPanel({
   const lotValid = LOT_PATTERN.test(lotId);
   const effectiveBlast = record?.blast_type ?? blastType ?? "";
   const needsBlast = step.has_blast_type && !effectiveBlast;
-  const ready = crew.length > 0 && lotValid && !needsBlast;
+  // Coating runs on one of two machines and which one has to be recorded
+  // before work starts, or the comparison between them is worthless.
+  const effectiveMachine = record?.emperion ?? emperion ?? "";
+  const needsMachine = Boolean(step.has_emperion) && !effectiveMachine;
+  const ready = crew.length > 0 && lotValid && !needsBlast && !needsMachine;
 
   /**
    * Lots are born here. There is no work to time at this station, so the whole
@@ -254,6 +261,7 @@ export default function OperatorPanel({
             lot_id: lotId,
             log_date: todayInPhoenix(),
             blast_type: step.has_blast_type ? blastType || null : null,
+            emperion: step.has_emperion ? emperion || null : null,
             pass_no: 1,
           })
           .select()
@@ -264,6 +272,11 @@ export default function OperatorPanel({
         }
         target = data as LogRow;
         setRecord(target);
+      } else if (step.has_emperion && emperion && !target.emperion) {
+        await supabase
+          .from("logs")
+          .update({ emperion })
+          .eq("id", target.id);
       }
 
       const action =
@@ -541,6 +554,24 @@ export default function OperatorPanel({
         )}
       </div>
 
+      {Boolean(step.has_emperion) && lotValid && (
+        <div className="op-blast">
+          <span className="op-blast-k">
+            <Factory size={14} /> Emperion
+          </span>
+          {EMPERIONS.map((m) => (
+            <button
+              key={m}
+              className="op-name mono"
+              aria-pressed={effectiveMachine === m}
+              onClick={() => setEmperion(m)}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
+
       {step.has_blast_type && lotValid && (
         <div className="op-blast">
           <span className="op-blast-k">
@@ -586,6 +617,8 @@ export default function OperatorPanel({
             ? "Choose a lot"
             : needsBlast
             ? "Choose a blast type"
+            : needsMachine
+            ? "Choose which Emperion"
             : ""}
         </div>
       )}

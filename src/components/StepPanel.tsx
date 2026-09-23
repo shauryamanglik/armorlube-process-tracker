@@ -6,6 +6,7 @@ import {
   CircleCheck,
   Clock,
   CornerUpLeft,
+  Factory,
   Pencil,
   Send,
   RotateCcw,
@@ -22,6 +23,8 @@ import {
   normalizeLot,
   type ActiveLot,
   type BlastType,
+  type Emperion,
+  EMPERIONS,
   type LogRow,
   type Operator,
   type Segment,
@@ -71,6 +74,7 @@ export default function StepPanel({
   const [crew, setCrew] = useState<string[]>([]);
   const [lotId, setLotId] = useState("");
   const [blastType, setBlastType] = useState<BlastType | "">("");
+  const [emperion, setEmperion] = useState<Emperion | "">("");
   const [timeMode, setTimeMode] = useState<"now" | "custom">("now");
   const [customDate, setCustomDate] = useState(todayInPhoenix());
   const [customTime, setCustomTime] = useState(nowClockInPhoenix());
@@ -204,6 +208,7 @@ export default function StepPanel({
   const q = rollup(segments, "queue", DEFAULT_RULES);
   const p = rollup(segments, "process", DEFAULT_RULES);
   const effectiveBlast = record?.blast_type ?? blastType ?? "";
+  const effectiveMachine = record?.emperion ?? emperion ?? "";
 
   const lotState: LotState = useMemo(() => {
     if (!lotId) return { kind: "empty" };
@@ -244,6 +249,10 @@ export default function StepPanel({
       onToast("Choose a blast type before logging process time.");
       return;
     }
+    if (step.has_emperion && action.startsWith("process") && !effectiveMachine) {
+      onToast("Choose which Emperion before logging process time.");
+      return;
+    }
 
     setBusy(true);
     try {
@@ -259,6 +268,7 @@ export default function StepPanel({
             lot_id: lotId,
             log_date: timeMode === "custom" ? customDate : todayInPhoenix(),
             blast_type: step.has_blast_type ? blastType || null : null,
+            emperion: step.has_emperion ? emperion || null : null,
             pass_no: 1,
           })
           .select()
@@ -269,11 +279,14 @@ export default function StepPanel({
         }
         target = data as LogRow;
         setRecord(target);
-      } else if (step.has_blast_type && blastType && !target.blast_type) {
-        await supabase
-          .from("logs")
-          .update({ blast_type: blastType })
-          .eq("id", target.id);
+      } else {
+        const patch: Record<string, unknown> = {};
+        if (step.has_blast_type && blastType && !target.blast_type)
+          patch.blast_type = blastType;
+        if (step.has_emperion && emperion && !target.emperion)
+          patch.emperion = emperion;
+        if (Object.keys(patch).length)
+          await supabase.from("logs").update(patch).eq("id", target.id);
       }
 
       const plan = planAction(segments, action, true, step);
@@ -432,6 +445,7 @@ export default function StepPanel({
       lotId: l.lot_id,
       logDate: l.log_date,
       blastType: l.blast_type,
+      emperion: l.emperion,
       notes: l.notes,
       segments: segs,
     });
@@ -575,6 +589,32 @@ export default function StepPanel({
       )}
 
       <div className="panel tight stack">
+        {Boolean(step.has_emperion) && (
+          <div>
+            <span className="field-label">
+              <Factory size={14} />
+              Emperion machine
+            </span>
+            <div className="chips">
+              {EMPERIONS.map((m) => (
+                <button
+                  key={m}
+                  className="chip mono"
+                  aria-pressed={effectiveMachine === m}
+                  onClick={() => setEmperion(m)}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {lotValid && !effectiveMachine && (
+              <p className="hint" style={{ marginTop: 8 }}>
+                Needed before process in.
+              </p>
+            )}
+          </div>
+        )}
+
         {step.has_blast_type && (
           <div>
             <span className="field-label">

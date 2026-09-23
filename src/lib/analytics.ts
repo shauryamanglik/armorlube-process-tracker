@@ -1501,3 +1501,106 @@ export function conflictedRecords(
   }
   return out;
 }
+
+// ============================================================
+// Coating, by machine
+// ============================================================
+
+/** Coating records only, since that is the one step with a machine. */
+export function coatingRows(rows: Enriched[]): Enriched[] {
+  return rows.filter((r) => r.step?.has_emperion);
+}
+
+/** Side by side comparison of the two Emperions. */
+export function byMachine(rows: Enriched[]): DayRow[] {
+  const groups = new Map<string, Enriched[]>();
+  for (const r of coatingRows(rows)) {
+    const key = r.log.emperion ?? "Not recorded";
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  const mean = (v: number[]) => {
+    const real = v.filter((x) => x > 0);
+    return real.length ? real.reduce((a, b) => a + b, 0) / real.length : 0;
+  };
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([machine, list]) => ({
+      date: machine,
+      Queue: toHours(mean(list.map((r) => r.queueMs))),
+      Process: toHours(mean(list.map((r) => r.processMs))),
+      Lots: list.length,
+    }));
+}
+
+/** Day by day, one line per machine. */
+export function machineDaily(
+  rows: Enriched[],
+  metric: Metric,
+  how: Aggregate
+): { data: DayRow[]; series: string[] } {
+  return dailySeries(
+    coatingRows(rows),
+    (r) => r.log.emperion ?? "Not recorded",
+    metric,
+    how
+  );
+}
+
+/** How the work split between the machines. */
+export function machineLoad(rows: Enriched[]): DayRow[] {
+  const groups = new Map<string, { lots: number; ms: number }>();
+  for (const r of coatingRows(rows)) {
+    const key = r.log.emperion ?? "Not recorded";
+    const cur = groups.get(key) ?? { lots: 0, ms: 0 };
+    cur.lots += 1;
+    cur.ms += r.processMs;
+    groups.set(key, cur);
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([machine, v]) => ({
+      date: machine,
+      Lots: v.lots,
+      "Process hours": toHours(v.ms),
+    }));
+}
+
+export function toCoatingCsv(
+  rows: Enriched[],
+  opNames: Map<string, string>
+): string {
+  const head = [
+    "Lot",
+    "Emperion",
+    "Date",
+    "Queue hours",
+    "Process hours",
+    "Total hours",
+    "Labour hours",
+    "Times sent back",
+    "Crew",
+    "Pass",
+    "State",
+  ];
+  const lines = coatingRows(rows).map((r) =>
+    [
+      r.log.lot_id,
+      r.log.emperion ?? "",
+      r.log.log_date,
+      (r.queueMs / 3600000).toFixed(2),
+      (r.processMs / 3600000).toFixed(2),
+      (r.totalMs / 3600000).toFixed(2),
+      (r.labourMs / 3600000).toFixed(2),
+      r.interruptions,
+      crewOf(r.segments)
+        .map((id) => opNames.get(id) ?? "")
+        .filter(Boolean)
+        .join(" / "),
+      r.log.pass_no,
+      r.log.deleted_at ? "deleted" : r.incomplete ? "running" : "done",
+    ]
+      .map((c) => `"${String(c)}"`)
+      .join(",")
+  );
+  return [head.join(","), ...lines].join("\n");
+}

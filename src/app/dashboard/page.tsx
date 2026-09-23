@@ -11,6 +11,7 @@ import {
   CircleCheck,
   Clock3,
   Download,
+  Factory,
   FileSpreadsheet,
   FileText,
   Filter,
@@ -34,7 +35,12 @@ import {
   enrich,
   enrichPos,
   blastComparison,
+  byMachine,
   byWeekday,
+  coatingRows,
+  machineDaily,
+  machineLoad,
+  toCoatingCsv,
   interruptionsByStep,
   METRIC_LABEL,
   operatorHours,
@@ -131,7 +137,7 @@ export default function DashboardPage() {
   const [showDeleted, setShowDeleted] = useState(false);
 
   const [tab, setTab] = useState<
-    "charts" | "raw" | "lots" | "pos" | "bypo" | "settings"
+    "charts" | "raw" | "lots" | "pos" | "bypo" | "coating" | "settings"
   >("charts");
   /** Which lot or order the detail drawer is showing. */
   const [openLot, setOpenLot] = useState<string | null>(null);
@@ -387,6 +393,7 @@ export default function DashboardPage() {
       lotId: r.log.lot_id,
       logDate: r.log.log_date,
       blastType: r.log.blast_type,
+      emperion: r.log.emperion,
       notes: r.log.notes,
       segments: r.segments,
     });
@@ -570,6 +577,25 @@ export default function DashboardPage() {
     } finally {
       setClosing(false);
     }
+  }
+
+  const coating = useMemo(() => coatingRows(filtered), [filtered]);
+  const machines = useMemo(() => byMachine(filtered), [filtered]);
+  const machineLoadRows = useMemo(() => machineLoad(filtered), [filtered]);
+  const machineTrend = useMemo(
+    () => machineDaily(filtered, metric, agg),
+    [filtered, metric, agg]
+  );
+
+  function exportCoatingCsv() {
+    const csv = toCoatingCsv(filtered, opNames);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `armorlube-coating-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const controlProps = { metric, setMetric, agg, setAgg };
@@ -1196,6 +1222,13 @@ export default function DashboardPage() {
             <button aria-pressed={tab === "bypo"} onClick={() => setTab("bypo")}>
               <ListOrdered size={15} />
               By PO
+            </button>
+            <button
+              aria-pressed={tab === "coating"}
+              onClick={() => setTab("coating")}
+            >
+              <Factory size={15} />
+              Coating
             </button>
             <button aria-pressed={tab === "raw"} onClick={() => setTab("raw")}>
               <Clock3 size={15} />
@@ -2074,6 +2107,152 @@ export default function DashboardPage() {
               </ChartBlock>
             </div>
 
+          </div>
+        )}
+
+        {tab === "coating" && (
+          <div className="stack">
+            <div className="row">
+              <p className="hint" style={{ margin: 0, maxWidth: "72ch" }}>
+                Coating only, split by which Emperion ran the lot. Records made
+                before the machine was tracked show as{" "}
+                <strong>Not recorded</strong> rather than being guessed at, so
+                early numbers will be thin until the floor has been logging it
+                for a while.
+              </p>
+              <div className="spacer" />
+              <button className="btn sm primary" onClick={exportCoatingCsv}>
+                <Download size={15} />
+                Coating CSV
+              </button>
+            </div>
+
+            <div className="grid-4">
+              {machineLoadRows.map((m) => (
+                <div className="stat" key={String(m.date)}>
+                  <div className="k mono">{String(m.date)}</div>
+                  <div className="v">{m.Lots} lots</div>
+                  <div className="hint">
+                    {Number(m["Process hours"]).toFixed(1)} h of coating
+                  </div>
+                </div>
+              ))}
+              <div className="stat">
+                <div className="k">Coating records</div>
+                <div className="v">{coating.length}</div>
+                <div className="hint">
+                  {coating.filter((r) => !r.log.emperion).length} with no machine
+                </div>
+              </div>
+            </div>
+
+            <ChartBlock
+              title="The two machines side by side"
+              description={
+                <>
+                  Average queue and process time per lot on each Emperion.{" "}
+                  <strong>Lots</strong> in the table view is how many each ran,
+                  which matters before reading much into a gap built on a
+                  handful of records.
+                </>
+              }
+              rows={machines}
+              columns={["Queue", "Process", "Lots"]}
+            >
+              <PairBars data={machines} height={300} />
+            </ChartBlock>
+
+            <ChartBlock
+              title="Each machine, day by day"
+              description={
+                <>
+                  One line per machine, one point per day, showing{" "}
+                  {METRIC_LABEL[metric].toLowerCase()} as{" "}
+                  {agg === "avg"
+                    ? "the average across the lots it ran that day"
+                    : "the total across every lot it ran that day"}
+                  . A machine drifting upward over several days is worth a look
+                  before it becomes the reason coating is the slowest step.
+                </>
+              }
+              rows={machineTrend.data}
+              columns={machineTrend.series}
+              controls={<MetricControls {...controlProps} />}
+            >
+              <DayLines data={machineTrend.data} series={machineTrend.series} />
+            </ChartBlock>
+
+            <div className="panel">
+              <div className="row" style={{ marginBottom: 10 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  Every coating record
+                </h2>
+                <div className="spacer" />
+                <span className="badge">{coating.length} rows</span>
+              </div>
+              {coating.length === 0 ? (
+                <div className="empty">No coating records in this range.</div>
+              ) : (
+                <div className="table-wrap scroll-y" style={{ maxHeight: 560 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Lot</th>
+                        <th>Emperion</th>
+                        <th>Date</th>
+                        <th>Queue</th>
+                        <th>Process</th>
+                        <th>Total</th>
+                        <th>Labour</th>
+                        <th>Crew</th>
+                        <th>Sent back</th>
+                        <th>Pass</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {coating.map((r) => (
+                        <tr
+                          key={r.log.id}
+                          className="clickable"
+                          onClick={() => {
+                            setOpenLot(r.log.lot_id);
+                            setTab("lots");
+                          }}
+                        >
+                          <td>
+                            <span className="row-link mono">{r.log.lot_id}</span>
+                          </td>
+                          <td>
+                            {r.log.emperion ? (
+                              <span className="badge info mono">
+                                {r.log.emperion}
+                              </span>
+                            ) : (
+                              <span className="badge warn">Not recorded</span>
+                            )}
+                          </td>
+                          <td className="mono">{r.log.log_date}</td>
+                          <td>{formatDuration(r.queueMs)}</td>
+                          <td>{formatDuration(r.processMs)}</td>
+                          <td>
+                            <strong>{formatDuration(r.totalMs)}</strong>
+                          </td>
+                          <td>{formatDuration(r.labourMs)}</td>
+                          <td>
+                            {crewOf(r.segments)
+                              .map((id) => opNames.get(id))
+                              .filter(Boolean)
+                              .join(", ")}
+                          </td>
+                          <td>{r.interruptions || ""}</td>
+                          <td>{r.log.pass_no > 1 ? r.log.pass_no : ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

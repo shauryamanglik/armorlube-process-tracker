@@ -17,8 +17,10 @@ import {
   phoenixToIso,
   todayInPhoenix,
 } from "@/lib/time";
+import { EMPERIONS } from "@/lib/types";
 import type {
   BlastType,
+  Emperion,
   Operator,
   Segment,
   SegmentKind,
@@ -45,6 +47,7 @@ export type EditorTarget =
       lotId: string;
       logDate: string;
       blastType: BlastType | null;
+      emperion: Emperion | null;
       notes: string | null;
       segments: Segment[];
     }
@@ -106,6 +109,11 @@ export default function RecordEditor({
   const [blastType, setBlastType] = useState<BlastType | "">(
     target.mode === "edit" && target.kind === "log"
       ? target.blastType ?? ""
+      : ""
+  );
+  const [emperion, setEmperion] = useState<Emperion | "">(
+    target.mode === "edit" && target.kind === "log"
+      ? target.emperion ?? ""
       : ""
   );
   const [notes, setNotes] = useState(
@@ -227,6 +235,7 @@ export default function RecordEditor({
             lot_id: target.lotId,
             log_date: logDate,
             blast_type: step.has_blast_type ? blastType || null : null,
+            emperion: step.has_emperion ? emperion || null : null,
             notes: notes || null,
             pass_no: target.passNo,
           })
@@ -246,6 +255,9 @@ export default function RecordEditor({
         };
         if (target.kind === "log" && step.has_blast_type) {
           patchBody.blast_type = blastType || null;
+        }
+        if (target.kind === "log" && step.has_emperion) {
+          patchBody.emperion = emperion || null;
         }
         const { error: updErr } = await supabase
           .from(table)
@@ -355,6 +367,24 @@ export default function RecordEditor({
               onChange={(e) => setLogDate(e.target.value)}
             />
           </div>
+          {target.kind === "log" && Boolean(step.has_emperion) && (
+            <div>
+              <span className="field-label">Emperion machine</span>
+              <select
+                className="select"
+                value={emperion}
+                onChange={(e) => setEmperion(e.target.value as Emperion | "")}
+              >
+                <option value="">Not recorded</option>
+                {EMPERIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {target.kind === "log" && step.has_blast_type && (
             <div>
               <span className="field-label">Blast type</span>

@@ -48,6 +48,9 @@ function stepHeaders(step: Step): string[] {
   if (step.has_blast_type) {
     base.splice(2, 0, `${step.step_name} - Blast type`);
   }
+  if (step.has_emperion) {
+    base.splice(2, 0, `${step.step_name} - Emperion`);
+  }
   return base;
 }
 
@@ -58,7 +61,8 @@ function stepValues(
   ops: Map<string, string>
 ): (string | number)[] {
   if (!row) {
-    return step.has_blast_type ? ["", "", "", "", "", ""] : ["", "", "", "", ""];
+    const extra = (step.has_blast_type ? 1 : 0) + (step.has_emperion ? 1 : 0);
+    return Array(5 + extra).fill("");
   }
   const base: (string | number)[] = [
     dateSpan(row.segments) || row.log.log_date,
@@ -69,6 +73,9 @@ function stepValues(
   ];
   if (step.has_blast_type) {
     base.splice(2, 0, row.log.blast_type ?? "");
+  }
+  if (step.has_emperion) {
+    base.splice(2, 0, row.log.emperion ?? "");
   }
   return base;
 }
@@ -353,6 +360,7 @@ export function buildWorkbook({
     ["Labour (h)", "Each stretch multiplied by how many people were on it"],
     ["Passes", "2 or more means the lot was reworked"],
     ["Times sent back", "How often work was interrupted and requeued"],
+    ["Emperion", "Which coating machine ran the lot, 2301 or 2302"],
     ["Blank step block", "The lot never went to that step"],
   ];
   const aboutSheet = XLSX.utils.aoa_to_sheet(about);

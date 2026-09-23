@@ -12,6 +12,8 @@ export type Step = {
   has_queue: boolean;
   has_process: boolean;
   has_blast_type: boolean;
+  /** True on Coating, where the machine has to be chosen. */
+  has_emperion?: boolean;
   sort_order: number;
   is_entry?: boolean;
   is_final?: boolean;
@@ -55,6 +57,10 @@ export type ActiveLot = {
 
 export type BlastType = "Manual Blasting" | "Auto Blasting";
 
+/** The two Emperion coating machines. */
+export type Emperion = "2301" | "2302";
+export const EMPERIONS: Emperion[] = ["2301", "2302"];
+
 export type LogRow = {
   id: string;
   step_id: string;
@@ -62,6 +68,8 @@ export type LogRow = {
   lot_id: string;
   log_date: string;
   blast_type: BlastType | null;
+  /** Which Emperion machine ran the coating. Null on every other step. */
+  emperion: Emperion | null;
   queue_in: string | null;
   queue_out: string | null;
   process_in: string | null;
