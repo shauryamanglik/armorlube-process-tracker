@@ -168,12 +168,15 @@ export function LotDetail({
   onDelete,
   onRestore,
   onAddStep,
+  priority,
 }: Common & {
   status: LotStatus;
   /** Every step a lot can be recorded at. */
   steps?: { id: string; step_name: string }[];
   /** Fill in a step the lot passed over, or add one anywhere. */
   onAddStep?: (lot: string, stepName: string, pass: number) => void;
+  /** Due date, hot and order, for a lot already on the line. */
+  priority?: React.ReactNode;
 }) {
   const [addStep, setAddStep] = useState("");
 
@@ -227,6 +230,8 @@ export function LotDetail({
             <span className="mono">{formatStamp(status.since)}</span>
           </div>
         )}
+
+        {priority && <div className="drawer-prio">{priority}</div>}
 
         {status.skipped.length > 0 && (
           <>
@@ -349,12 +354,14 @@ export function PoDetail({
   onDelete,
   onRestore,
   onAddStation,
+  priority,
 }: Common & {
   status: PoStatus;
   /** Every station that handles purchase orders, in order. */
   stations?: { id: string; step_name: string }[];
   /** Add a station this order was never logged at. */
   onAddStation?: (po: string, stepName: string) => void;
+  priority?: React.ReactNode;
 }) {
   const [addStation, setAddStation] = useState("");
   const seen = new Set(status.records.map((r) => r.step?.step_name));
@@ -404,6 +411,10 @@ export function PoDetail({
             <span className="mono">{formatStamp(status.since)}</span>
           </div>
         )}
+
+        {priority && <div className="drawer-prio">{priority}</div>}
+
+        {priority && <div className="drawer-prio">{priority}</div>}
 
         {status.skipped.length > 0 && (
           <div className="lot-status repeat">

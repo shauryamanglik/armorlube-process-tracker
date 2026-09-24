@@ -3160,3 +3160,10 @@ tbody tr.clickable:hover {
   font-size: 12px;
   color: var(--text-faint);
 }
+
+.drawer-prio {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  padding: 4px 14px 14px;
+}

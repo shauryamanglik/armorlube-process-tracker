@@ -94,6 +94,8 @@ import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
 import FullscreenPortal from "@/components/FullscreenPortal";
 import { loadPriorities, type PriorityMap } from "@/lib/priority";
+import { PriorityMark, PriorityRow } from "@/components/PriorityControls";
+import { dueLabel } from "@/lib/priority";
 import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
 import FloorBoard from "@/components/FloorBoard";
 import { supabase } from "@/lib/supabase";
@@ -212,14 +214,16 @@ export default function DashboardPage() {
     void load();
   }, [load]);
 
+  const reloadPrio = useCallback(async () => {
+    setLotPrio(await loadPriorities("lot"));
+    setPoPrio(await loadPriorities("po"));
+  }, []);
+
   // Priority changes on the floor, so the board picks it up with its data.
   useEffect(() => {
     if (!key) return;
-    void (async () => {
-      setLotPrio(await loadPriorities("lot"));
-      setPoPrio(await loadPriorities("po"));
-    })();
-  }, [key, data]);
+    void reloadPrio();
+  }, [key, data, reloadPrio]);
 
   async function signIn() {
     setChecking(true);
@@ -1562,6 +1566,7 @@ export default function DashboardPage() {
                   <thead>
                     <tr>
                       <th>Lot</th>
+                      <th>Due</th>
                       <th>Where</th>
                       <th>State</th>
                       <th>Since</th>
@@ -1583,6 +1588,19 @@ export default function DashboardPage() {
                       >
                         <td>
                           <span className="row-link mono">{l.lot}</span>
+                        </td>
+                        <td>
+                          {lotPrio.get(l.lot)?.hot || lotPrio.get(l.lot)?.due_date ? (
+                            <PriorityMark
+                              hot={lotPrio.get(l.lot)?.hot}
+                              due={dueLabel(
+                                lotPrio.get(l.lot)?.due_date ?? null,
+                                todayInPhoenix()
+                              )}
+                            />
+                          ) : (
+                            <span className="hint">none</span>
+                          )}
                         </td>
                         <td>{l.live ? l.step : "Off the line"}</td>
                         <td>
@@ -1693,6 +1711,7 @@ export default function DashboardPage() {
                 <thead>
                   <tr>
                     <th>PO</th>
+                    <th>Due</th>
                     <th>Where</th>
                     <th>State</th>
                     <th>Since</th>
@@ -2287,6 +2306,15 @@ export default function DashboardPage() {
               onDelete={(id) => void softDeleteLog(id)}
               onRestore={(id) => void restoreLog(id)}
               onAddStep={addSkippedStep}
+              priority={
+                <PriorityRow
+                  kind="lot"
+                  refId={st.lot}
+                  map={lotPrio}
+                  others={statuses.filter((x) => x.live).map((x) => x.lot)}
+                  onChanged={() => void reloadPrio()}
+                />
+              }
             />
             </FullscreenPortal>
           );
@@ -2308,6 +2336,15 @@ export default function DashboardPage() {
               onDelete={(id) => void softDeletePo(id)}
               onRestore={(id) => void restorePo(id)}
               onAddStation={addPoStation}
+              priority={
+                <PriorityRow
+                  kind="po"
+                  refId={st.po}
+                  map={poPrio}
+                  others={poStatusRows.filter((x) => x.live).map((x) => x.po)}
+                  onChanged={() => void reloadPrio()}
+                />
+              }
             />
             </FullscreenPortal>
           );
