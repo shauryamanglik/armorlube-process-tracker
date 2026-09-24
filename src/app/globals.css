@@ -3011,3 +3011,152 @@ tbody tr.clickable:hover {
   opacity: 0.85;
   margin-top: 2px;
 }
+
+/* ============================================================
+   Priority: due date, hot job, manual order
+   ============================================================ */
+
+.prio-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.prio-due {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+
+.prio-due .input {
+  width: 168px;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+
+.prio-hot,
+.prio-order {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition: all 0.12s ease;
+}
+
+.prio-hot:disabled,
+.prio-order:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.prio-hot.on {
+  background: rgba(240, 106, 46, 0.18);
+  border-color: rgba(240, 106, 46, 0.6);
+  color: #ff8a4c;
+  font-weight: 650;
+}
+
+.flame {
+  color: #ff7a3c;
+  flex: none;
+}
+
+.prio-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 7px;
+  vertical-align: middle;
+  flex: none;
+}
+
+.due-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.due-tag.late {
+  background: rgba(229, 72, 77, 0.16);
+  color: #ff9a9d;
+}
+
+.due-tag.soon {
+  background: rgba(240, 169, 46, 0.16);
+  color: var(--hold);
+}
+
+.due-tag.ok {
+  background: var(--surface-3);
+  color: var(--text-faint);
+}
+
+.fb-flame {
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+/* ---------- order dialog ---------- */
+
+.order-modal {
+  max-width: 460px;
+}
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.order-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  flex-shrink: 0;
+}
+
+.order-item.mine {
+  border-color: var(--info);
+  background: rgba(76, 141, 246, 0.14);
+}
+
+.order-pos {
+  width: 24px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: right;
+  flex: none;
+}
+
+.order-ref {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.order-due {
+  font-size: 12px;
+  color: var(--text-faint);
+}

@@ -93,6 +93,7 @@ import { ChartBlock, DayBars, DayLines, PairBars } from "@/components/ChartBlock
 import { buildWorkbook, downloadWorkbook } from "@/lib/excel";
 import { LotDetail, PoDetail } from "@/components/DetailDrawer";
 import FullscreenPortal from "@/components/FullscreenPortal";
+import { loadPriorities, type PriorityMap } from "@/lib/priority";
 import RecordEditor, { type EditorTarget } from "@/components/RecordEditor";
 import FloorBoard from "@/components/FloorBoard";
 import { supabase } from "@/lib/supabase";
@@ -148,6 +149,8 @@ export default function DashboardPage() {
   const [floorDay, setFloorDay] = useState(() => todayInPhoenix());
   /** One board at a time keeps the top of the page readable. */
   const [boardKind, setBoardKind] = useState<"lots" | "pos">("lots");
+  const [lotPrio, setLotPrio] = useState<PriorityMap>(new Map());
+  const [poPrio, setPoPrio] = useState<PriorityMap>(new Map());
   /** Eight filter fields open at once is a wall of controls, so they fold
    *  away and the header shows what is currently narrowing the numbers. */
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -208,6 +211,15 @@ export default function DashboardPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Priority changes on the floor, so the board picks it up with its data.
+  useEffect(() => {
+    if (!key) return;
+    void (async () => {
+      setLotPrio(await loadPriorities("lot"));
+      setPoPrio(await loadPriorities("po"));
+    })();
+  }, [key, data]);
 
   async function signIn() {
     setChecking(true);
@@ -832,6 +844,7 @@ export default function DashboardPage() {
               </div>
             ) : null
           }
+          prio={boardKind === "lots" ? lotPrio : poPrio}
           queueGroups={boardKind === "lots" ? floorQueue : floorPoQueue}
           processGroups={boardKind === "lots" ? floorProcess : floorPoProcess}
           day={floorDay}

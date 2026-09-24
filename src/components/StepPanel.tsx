@@ -47,6 +47,8 @@ import {
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
 import RecordEditor, { type EditorTarget } from "./RecordEditor";
+import { PriorityRow } from "./PriorityControls";
+import { loadPriorities, type PriorityMap } from "@/lib/priority";
 import LotPicker, { type LotHere, type LotState } from "./LotPicker";
 import PhaseControls, { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
@@ -93,6 +95,15 @@ export default function StepPanel({
 
 
   const [hereStates, setHereStates] = useState<LotHere[]>([]);
+  const [prio, setPrio] = useState<PriorityMap>(new Map());
+
+  const loadPrio = useCallback(async () => {
+    setPrio(await loadPriorities("lot"));
+  }, []);
+
+  useEffect(() => {
+    void loadPrio();
+  }, [loadPrio]);
 
   /**
    * Lots with a record at this station, and whether each is waiting or being
@@ -575,7 +586,19 @@ export default function StepPanel({
           stepName={step.step_name}
           state={lotState}
           entryStep={Boolean(step.is_entry)}
+          prio={prio}
         />
+        {step.is_entry && lotValid && (
+          <div style={{ marginTop: 12 }}>
+            <PriorityRow
+              kind="lot"
+              refId={lotId}
+              map={prio}
+              others={lots.map((l) => l.lot_id)}
+              onChanged={() => void loadPrio()}
+            />
+          </div>
+        )}
       </div>
 
       {record && record.pass_no > 1 && (

@@ -35,6 +35,8 @@ import {
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
 import RecordEditor, { type EditorTarget } from "./RecordEditor";
+import { PriorityMark, PriorityRow } from "./PriorityControls";
+import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
 import PhaseControls, { liveState } from "./PhaseControls";
 
 type Props = {
@@ -74,6 +76,15 @@ export default function PoPanel({
   const [segments, setSegments] = useState<Segment[]>([]);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<EditorTarget | null>(null);
+  const [prio, setPrio] = useState<PriorityMap>(new Map());
+
+  const loadPrio = useCallback(async () => {
+    setPrio(await loadPriorities("po"));
+  }, []);
+
+  useEffect(() => {
+    void loadPrio();
+  }, [loadPrio]);
 
   const valid = LOT_PATTERN.test(poNumber);
 
@@ -285,6 +296,13 @@ export default function PoPanel({
       .slice(0, 60);
   }, [registry, here, hereStates, arrived, search, scope]);
 
+  const orderedPos = useMemo(
+    () =>
+      byPriority(listed, (x) => x.po_number, (x) => x.state?.since ?? null, prio),
+    [listed, prio]
+  );
+  const todayStr = todayInPhoenix();
+
   async function press(action: Action) {
     if (busy) return;
     if (crew.length === 0) {
@@ -465,7 +483,7 @@ export default function PoPanel({
               </div>
             ) : (
               <div className="lot-list">
-                {listed.map((r) => (
+                {orderedPos.map((r) => (
                   <button
                     key={r.po_number}
                     className="lot-row"
@@ -473,7 +491,13 @@ export default function PoPanel({
                     onClick={() => setPoNumber(r.po_number)}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="lid mono">{r.po_number}</div>
+                      <div className="lid mono">
+                        {r.po_number}
+                        <PriorityMark
+                          hot={prio.get(r.po_number)?.hot}
+                          due={dueLabel(prio.get(r.po_number)?.due_date ?? null, todayStr)}
+                        />
+                      </div>
                       <div className="where">
                         {r.openHere && r.state?.since
                           ? `${r.state.label} since ${formatStamp(r.state.since)}`
@@ -538,6 +562,18 @@ export default function PoPanel({
           </div>
         )}
       </div>
+
+      {step.is_entry && valid && (
+        <div className="panel tight">
+          <PriorityRow
+            kind="po"
+            refId={poNumber}
+            map={prio}
+            others={registry.map((r) => r.po_number)}
+            onChanged={() => void loadPrio()}
+          />
+        </div>
+      )}
 
       <PhaseControls
         segments={segments}

@@ -18,6 +18,8 @@ import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
 import EndConfirm from "./EndConfirm";
+import { PriorityMark, PriorityRow } from "./PriorityControls";
+import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
 
 type Row = {
   po_number: string;
@@ -43,6 +45,17 @@ export default function OperatorPoPanel({
     step.is_entry ? "new" : "here"
   );
   const [ending, setEnding] = useState<string | null>(null);
+  const [prio, setPrio] = useState<PriorityMap>(new Map());
+
+  const loadPrio = useCallback(async () => {
+    setPrio(await loadPriorities("po"));
+  }, []);
+
+  useEffect(() => {
+    void loadPrio();
+    const t = setInterval(() => void loadPrio(), 30000);
+    return () => clearInterval(t);
+  }, [loadPrio]);
 
   const [registry, setRegistry] = useState<PoRegistryRow[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -153,21 +166,27 @@ export default function OperatorPoPanel({
     return () => clearTimeout(t);
   }, [lookup]);
 
+  /** Closest due date first, hot jobs above everything. */
   const listed = useMemo(() => {
-    if (scope === "here") return rows;
-    return registry.map((r) => {
-      const hit = rows.find((x) => x.po_number === r.po_number);
-      return (
-        hit ?? {
-          po_number: r.po_number,
-          label: r.last_step,
-          tone: "idle" as const,
-          since: null,
-          ready: false,
-        }
-      );
-    });
-  }, [scope, rows, registry]);
+    const raw =
+      scope === "here"
+        ? rows
+        : registry.map((r) => {
+            const hit = rows.find((x) => x.po_number === r.po_number);
+            return (
+              hit ?? {
+                po_number: r.po_number,
+                label: r.last_step,
+                tone: "idle" as const,
+                since: null,
+                ready: false,
+              }
+            );
+          });
+    return byPriority(raw, (x) => x.po_number, (x) => x.since, prio);
+  }, [scope, rows, registry, prio]);
+
+  const today = todayInPhoenix();
 
   const valid = LOT_PATTERN.test(poNumber);
   const ready = crew.length > 0 && valid;
@@ -313,6 +332,10 @@ export default function OperatorPoPanel({
                 onClick={() => setPoNumber(r.po_number)}
               >
                 <span className="mono op-lot-id">{r.po_number}</span>
+                <PriorityMark
+                  hot={prio.get(r.po_number)?.hot}
+                  due={dueLabel(prio.get(r.po_number)?.due_date ?? null, today)}
+                />
                 <span className={`op-tag ${r.ready ? "ready" : r.tone}`}>
                   {r.ready ? null : r.tone === "process" ? (
                     <Cog size={12} />
@@ -327,6 +350,16 @@ export default function OperatorPoPanel({
         </div>
         )}
       </div>
+
+      {step.is_entry && valid && (
+        <PriorityRow
+          kind="po"
+          refId={poNumber}
+          map={prio}
+          others={registry.map((r) => r.po_number)}
+          onChanged={() => void loadPrio()}
+        />
+      )}
 
       <StatusStrip
         segments={segments}

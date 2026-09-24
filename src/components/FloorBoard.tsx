@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import type { FloorGroup } from "@/lib/analytics";
 import { formatDuration, formatClock, formatStamp } from "@/lib/time";
+import { byPriority, type PriorityMap } from "@/lib/priority";
+import { Flame } from "lucide-react";
 
 /**
  * The floor board is meant to be readable from across a room, so it is built
@@ -32,6 +34,7 @@ type Props = {
   onItemClick?: (ref: string) => void;
   big?: boolean;
   zoom?: number;
+  prio?: PriorityMap;
 };
 
 /** Live box size of an element, so the layout can be worked out from the
@@ -194,18 +197,24 @@ function FloorColumn({
   scaleMs,
   layout,
   onItemClick,
+  prio,
 }: {
   group: FloorGroup;
   kind: "queue" | "process";
   scaleMs: number;
   layout: Layout;
   onItemClick?: (ref: string) => void;
+  prio?: PriorityMap;
 }) {
-  // Running first, then longest, so a drop can only ever lose finished work.
-  const items = [...group.items].sort((a, b) => {
-    if (a.running !== b.running) return a.running ? -1 : 1;
-    return b.ms - a.ms;
-  });
+  // Running work first, so a drop can only ever lose finished work. Within
+  // each, the priority order the stations use: hot, then due date.
+  const running = group.items.filter((i) => i.running);
+  const finished = group.items.filter((i) => !i.running);
+  const order = (list: typeof group.items) =>
+    prio
+      ? byPriority(list, (i) => i.ref, (i) => i.startedAt, prio)
+      : [...list].sort((a, b) => b.ms - a.ms);
+  const items = [...order(running), ...order(finished)];
 
   const longestRef = items.reduce((n, i) => Math.max(n, i.ref.length), 8);
   const capacity = layout.capacityFor(longestRef);
@@ -265,7 +274,10 @@ function FloorColumn({
                   className="fb-fill"
                   style={{ width: `${Math.max(pct, 3)}%` }}
                 />
-                <span className="fb-label">{it.ref}</span>
+                <span className="fb-label">
+                  {prio?.get(it.ref)?.hot && <Flame size={12} className="flame fb-flame" />}
+                  {it.ref}
+                </span>
                 <span className="fb-time">{formatDuration(it.ms)}</span>
               </button>
             );
@@ -287,6 +299,7 @@ export function FloorColumnSet({
   kind,
   groups,
   scaleMs,
+  prio,
   onItemClick,
   big,
   zoom,
@@ -335,6 +348,7 @@ export function FloorColumnSet({
             scaleMs={scaleMs}
             layout={layout}
             onItemClick={onItemClick}
+            prio={prio}
           />
         ))}
       </div>
@@ -355,9 +369,12 @@ export default function FloorBoard({
   onRefresh,
   onItemClick,
   label,
+  prio,
 }: {
   /** Rendered in the header, used for the lots against orders switch. */
   leftControls?: React.ReactNode;
+  /** Due dates and hot flags, so the board follows the stations' order. */
+  prio?: PriorityMap;
   queueGroups: FloorGroup[];
   processGroups: FloorGroup[];
   day: string;
@@ -564,6 +581,7 @@ export default function FloorBoard({
             kind="queue"
             groups={shownQueue}
             scaleMs={scaleMs}
+            prio={prio}
             onItemClick={onItemClick}
             big={full}
             zoom={zoom}
@@ -575,6 +593,7 @@ export default function FloorBoard({
             kind="process"
             groups={shownProcess}
             scaleMs={scaleMs}
+            prio={prio}
             onItemClick={onItemClick}
             big={full}
             zoom={zoom}

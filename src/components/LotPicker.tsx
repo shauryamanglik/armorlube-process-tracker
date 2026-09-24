@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import type { ActiveLot, Segment } from "@/lib/types";
 import { LOT_HINT, LOT_PATTERN } from "@/lib/types";
-import { formatStamp } from "@/lib/time";
+import { formatStamp, todayInPhoenix } from "@/lib/time";
+import { byPriority, dueLabel, type PriorityMap } from "@/lib/priority";
+import { PriorityMark } from "./PriorityControls";
 
 export type LotState =
   | { kind: "empty" }
@@ -40,6 +42,8 @@ type Props = {
   stepName: string;
   state: LotState;
   entryStep: boolean;
+  /** Due dates and hot flags, so the list follows the same order as the floor. */
+  prio?: PriorityMap;
 };
 
 export default function LotPicker({
@@ -50,6 +54,7 @@ export default function LotPicker({
   stepName,
   state,
   entryStep,
+  prio,
 }: Props) {
   // Default to what is sitting at this station, because that is what the
   // operator is almost always looking for.
@@ -63,7 +68,8 @@ export default function LotPicker({
     [here]
   );
 
-  const shown = useMemo(() => {
+  type Row = { lot_id: string; here: LotHere | undefined; info: ActiveLot | undefined };
+  const shown = useMemo((): Row[] => {
     const q = search.trim().toUpperCase();
     if (scope === "here") {
       return here
@@ -73,8 +79,7 @@ export default function LotPicker({
           here: h,
           info: lots.find((l) => l.lot_id === h.lot_id),
         }))
-        .sort((a, b) => (b.here.since ?? "").localeCompare(a.here.since ?? ""))
-        .slice(0, 60);
+        .sort((a, b) => (b.here.since ?? "").localeCompare(a.here.since ?? ""));
     }
     return lots
       .filter((l) => !q || l.lot_id.includes(q))
@@ -82,9 +87,18 @@ export default function LotPicker({
         lot_id: l.lot_id,
         here: hereMap.get(l.lot_id),
         info: l,
-      }))
-      .slice(0, 60);
+      }));
   }, [scope, search, here, lots, hereMap]);
+
+  // Same order the floor sees: hot, then due date, then arrival.
+  const ordered = useMemo(
+    () =>
+      prio
+        ? byPriority(shown, (x) => x.lot_id, (x) => x.here?.since ?? null, prio).slice(0, 60)
+        : shown.slice(0, 60),
+    [shown, prio]
+  );
+  const today = todayInPhoenix();
 
   const toneIcon = (tone?: string) =>
     tone === "process" ? (
@@ -154,7 +168,7 @@ export default function LotPicker({
             </div>
           ) : (
             <div className="lot-list">
-              {shown.map((row) => (
+              {ordered.map((row) => (
                 <button
                   key={row.lot_id}
                   className="lot-row"
@@ -162,7 +176,15 @@ export default function LotPicker({
                   onClick={() => onChange(row.lot_id)}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="lid mono">{row.lot_id}</div>
+                    <div className="lid mono">
+                      {row.lot_id}
+                      {prio && (
+                        <PriorityMark
+                          hot={prio.get(row.lot_id)?.hot}
+                          due={dueLabel(prio.get(row.lot_id)?.due_date ?? null, today)}
+                        />
+                      )}
+                    </div>
                     <div className="where">
                       {row.here
                         ? row.here.since

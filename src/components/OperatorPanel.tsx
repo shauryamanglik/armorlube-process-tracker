@@ -24,6 +24,8 @@ import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
 import EndConfirm from "./EndConfirm";
+import { PriorityMark, PriorityRow } from "./PriorityControls";
+import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
 
 type Here = {
@@ -66,6 +68,17 @@ export default function OperatorPanel({
   const [ending, setEnding] = useState<{ lot: string; stamp: string } | null>(
     null
   );
+  const [prio, setPrio] = useState<PriorityMap>(new Map());
+
+  const loadPrio = useCallback(async () => {
+    setPrio(await loadPriorities("lot"));
+  }, []);
+
+  useEffect(() => {
+    void loadPrio();
+    const t = setInterval(() => void loadPrio(), 30000);
+    return () => clearInterval(t);
+  }, [loadPrio]);
 
   // Lots are created at the first step only. Everywhere else the number is
   // picked from a list, because typing a number that already exists is the
@@ -151,18 +164,24 @@ export default function OperatorPanel({
     return () => clearTimeout(t);
   }, [lookup]);
 
+  /** Closest due date first, hot jobs above everything, at every station. */
   const listed = useMemo(() => {
-    if (scope === "here") return here;
-    return lots.map((l) => {
-      const h = here.find((x) => x.lot_id === l.lot_id);
-      return {
-        lot_id: l.lot_id,
-        label: h?.label ?? l.last_step,
-        tone: h?.tone ?? ("idle" as const),
-        since: h?.since ?? null,
-      };
-    });
-  }, [scope, here, lots]);
+    const raw =
+      scope === "here"
+        ? here
+        : lots.map((l) => {
+            const h = here.find((x) => x.lot_id === l.lot_id);
+            return {
+              lot_id: l.lot_id,
+              label: h?.label ?? l.last_step,
+              tone: h?.tone ?? ("idle" as const),
+              since: h?.since ?? null,
+            };
+          });
+    return byPriority(raw, (x) => x.lot_id, (x) => x.since, prio);
+  }, [scope, here, lots, prio]);
+
+  const today = todayInPhoenix();
 
   const lotValid = LOT_PATTERN.test(lotId);
   const effectiveBlast = record?.blast_type ?? blastType ?? "";
@@ -421,6 +440,14 @@ export default function OperatorPanel({
               {LOT_HINT}
             </div>
           )}
+
+          <PriorityRow
+            kind="lot"
+            refId={LOT_PATTERN.test(lot) ? lot : ""}
+            map={prio}
+            others={lots.map((l) => l.lot_id)}
+            onChanged={() => void loadPrio()}
+          />
         </div>
 
         <button
@@ -511,6 +538,10 @@ export default function OperatorPanel({
                 onClick={() => setLotId(l.lot_id)}
               >
                 <span className="mono op-lot-id">{l.lot_id}</span>
+                <PriorityMark
+                  hot={prio.get(l.lot_id)?.hot}
+                  due={dueLabel(prio.get(l.lot_id)?.due_date ?? null, today)}
+                />
                 <span className={`op-tag ${l.tone}`}>
                   {l.tone === "process" ? (
                     <Cog size={12} />
