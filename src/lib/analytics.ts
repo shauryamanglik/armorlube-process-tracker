@@ -1604,3 +1604,235 @@ export function toCoatingCsv(
   );
   return [head.join(","), ...lines].join("\n");
 }
+
+// ============================================================
+// Delivery against due date
+// ============================================================
+
+export type OnTime = {
+  ref: string;
+  due: string;
+  /** When the last process stretch at the finishing station closed. */
+  completedAt: string | null;
+  completedDay: string | null;
+  /** Completion day minus due day. Negative is early, positive is late. */
+  daysLate: number | null;
+  status: "early" | "on time" | "late" | "open" | "overdue";
+  hot: boolean;
+};
+
+function dayNumber(date: string): number {
+  const [y, m, d] = date.split("-").map(Number);
+  return Date.UTC(y, m - 1, d) / 86400000;
+}
+
+function toPhoenixDay(iso: string): string {
+  const t = new Date(new Date(iso).getTime() - 7 * 3600000);
+  return t.toISOString().slice(0, 10);
+}
+
+/**
+ * Only work that has a due date can be on time or late, so anything without
+ * one is left out rather than counted as a pass. Open work with a date is
+ * kept, because work that is already overdue is the thing worth seeing.
+ */
+function classify(
+  ref: string,
+  due: string,
+  completedAt: string | null,
+  hot: boolean,
+  today: string
+): OnTime {
+  if (!completedAt) {
+    return {
+      ref,
+      due,
+      completedAt: null,
+      completedDay: null,
+      daysLate: dayNumber(today) - dayNumber(due),
+      status: dayNumber(today) > dayNumber(due) ? "overdue" : "open",
+      hot,
+    };
+  }
+  const day = toPhoenixDay(completedAt);
+  const late = dayNumber(day) - dayNumber(due);
+  return {
+    ref,
+    due,
+    completedAt,
+    completedDay: day,
+    daysLate: late,
+    status: late < 0 ? "early" : late === 0 ? "on time" : "late",
+    hot,
+  };
+}
+
+/** Lots finish when a process stretch closes at the last lot step. */
+export function lotOnTime(
+  statuses: LotStatus[],
+  prio: Map<string, { due_date: string | null; hot: boolean }>,
+  today: string
+): OnTime[] {
+  const out: OnTime[] = [];
+  for (const st of statuses) {
+    const p = prio.get(st.lot);
+    if (!p?.due_date) continue;
+
+    let completedAt: string | null = null;
+    if (!st.live) {
+      for (const r of st.records) {
+        if (!r.step?.is_final) continue;
+        for (const sg of r.segments) {
+          if (sg.kind === "process" && sg.ended_at) {
+            if (!completedAt || sg.ended_at > completedAt) completedAt = sg.ended_at;
+          }
+        }
+      }
+    }
+    out.push(classify(st.lot, p.due_date, completedAt, p.hot, today));
+  }
+  return out;
+}
+
+/** Orders finish when a process stretch closes at the shipping station. */
+export function poOnTime(
+  statuses: PoStatus[],
+  steps: Step[],
+  prio: Map<string, { due_date: string | null; hot: boolean }>,
+  today: string
+): OnTime[] {
+  const stations = steps
+    .filter((s) => s.tracks_po && s.active !== false)
+    .sort((a, b) => a.sort_order - b.sort_order);
+  const shipping = stations[stations.length - 1];
+
+  const out: OnTime[] = [];
+  for (const st of statuses) {
+    const p = prio.get(st.po);
+    if (!p?.due_date) continue;
+
+    let completedAt: string | null = null;
+    if (!st.live && shipping) {
+      for (const r of st.records) {
+        if (r.step?.id !== shipping.id) continue;
+        for (const sg of r.segments) {
+          if (sg.kind === "process" && sg.ended_at) {
+            if (!completedAt || sg.ended_at > completedAt) completedAt = sg.ended_at;
+          }
+        }
+      }
+    }
+    out.push(classify(st.po, p.due_date, completedAt, p.hot, today));
+  }
+  return out;
+}
+
+export type OnTimeSummary = {
+  completed: number;
+  onTime: number;
+  late: number;
+  rate: number;
+  avgDaysLate: number;
+  open: number;
+  overdue: number;
+};
+
+export function onTimeSummary(rows: OnTime[]): OnTimeSummary {
+  const done = rows.filter((r) => r.completedAt);
+  const onTime = done.filter((r) => (r.daysLate ?? 0) <= 0).length;
+  const late = done.filter((r) => (r.daysLate ?? 0) > 0);
+  return {
+    completed: done.length,
+    onTime,
+    late: late.length,
+    rate: done.length ? Math.round((onTime / done.length) * 1000) / 10 : 0,
+    avgDaysLate: late.length
+      ? Math.round(
+          (late.reduce((a, r) => a + (r.daysLate ?? 0), 0) / late.length) * 10
+        ) / 10
+      : 0,
+    open: rows.filter((r) => r.status === "open").length,
+    overdue: rows.filter((r) => r.status === "overdue").length,
+  };
+}
+
+/** Monday of the week a day falls in, so weeks group consistently. */
+function weekOf(day: string): string {
+  const n = dayNumber(day);
+  const dow = new Date(n * 86400000).getUTCDay();
+  const monday = n - ((dow + 6) % 7);
+  return new Date(monday * 86400000).toISOString().slice(0, 10);
+}
+
+/** On time rate per week of completion. */
+export function onTimeByWeek(rows: OnTime[]): DayRow[] {
+  const weeks = new Map<string, { on: number; total: number }>();
+  for (const r of rows) {
+    if (!r.completedDay) continue;
+    const w = weekOf(r.completedDay);
+    const cur = weeks.get(w) ?? { on: 0, total: 0 };
+    cur.total += 1;
+    if ((r.daysLate ?? 0) <= 0) cur.on += 1;
+    weeks.set(w, cur);
+  }
+  return Array.from(weeks.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([w, v]) => ({
+      date: `wk ${w.slice(5)}`,
+      "On time %": Math.round((v.on / v.total) * 1000) / 10,
+      Completed: v.total,
+    }));
+}
+
+/** How early or late completed work landed, bucketed by days. */
+export function lateness(rows: OnTime[]): DayRow[] {
+  const buckets: [string, (d: number) => boolean][] = [
+    ["4d+ early", (d) => d <= -4],
+    ["3d early", (d) => d === -3],
+    ["2d early", (d) => d === -2],
+    ["1d early", (d) => d === -1],
+    ["On the day", (d) => d === 0],
+    ["1d late", (d) => d === 1],
+    ["2d late", (d) => d === 2],
+    ["3d late", (d) => d === 3],
+    ["4d+ late", (d) => d >= 4],
+  ];
+  const done = rows.filter((r) => r.completedAt && r.daysLate !== null);
+  return buckets.map(([label, test]) => ({
+    date: label,
+    Early: label.includes("early") ? done.filter((r) => test(r.daysLate!)).length : 0,
+    "On time": label === "On the day" ? done.filter((r) => test(r.daysLate!)).length : 0,
+    Late: label.includes("late") ? done.filter((r) => test(r.daysLate!)).length : 0,
+  }));
+}
+
+/** Open work by how close it is to its due date. */
+export function atRisk(rows: OnTime[]): DayRow[] {
+  const open = rows.filter((r) => !r.completedAt);
+  const count = (f: (d: number) => boolean) =>
+    open.filter((r) => f(r.daysLate ?? 0)).length;
+  // daysLate for open work is today minus due, so positive means overdue.
+  return [
+    { date: "Overdue", Items: count((d) => d > 0) },
+    { date: "Due today", Items: count((d) => d === 0) },
+    { date: "Due in 1 to 3 days", Items: count((d) => d < 0 && d >= -3) },
+    { date: "Later", Items: count((d) => d < -3) },
+  ];
+}
+
+export function toOnTimeCsv(rows: OnTime[], label: string): string {
+  const head = [label, "Due", "Completed", "Days early or late", "Status", "Hot"];
+  const lines = rows.map((r) =>
+    [
+      r.ref,
+      r.due,
+      r.completedDay ?? "",
+      r.daysLate === null ? "" : r.daysLate,
+      r.status,
+      r.hot ? "yes" : "",
+    ]
+      .map((c) => `"${String(c)}"`)
+      .join(",")
+  );
+  return [head.join(","), ...lines].join("\n");
+}

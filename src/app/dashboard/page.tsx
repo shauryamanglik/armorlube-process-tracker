@@ -11,7 +11,9 @@ import {
   CircleCheck,
   Clock3,
   Download,
+  CalendarCheck,
   Factory,
+  Flame,
   FileSpreadsheet,
   FileText,
   Filter,
@@ -54,6 +56,13 @@ import {
   padGroups,
   poStatuses,
   staleOpenStretches,
+  atRisk,
+  lateness,
+  lotOnTime,
+  onTimeByWeek,
+  onTimeSummary,
+  poOnTime,
+  toOnTimeCsv,
   conflictedRecords,
   slowestPos,
   waitShare,
@@ -140,8 +149,16 @@ export default function DashboardPage() {
   const [showDeleted, setShowDeleted] = useState(false);
 
   const [tab, setTab] = useState<
-    "charts" | "raw" | "lots" | "pos" | "bypo" | "coating" | "settings"
+    | "charts"
+    | "raw"
+    | "lots"
+    | "pos"
+    | "bypo"
+    | "coating"
+    | "ontime"
+    | "settings"
   >("charts");
+  const [otKind, setOtKind] = useState<"lots" | "pos">("lots");
   /** Which lot or order the detail drawer is showing. */
   const [openLot, setOpenLot] = useState<string | null>(null);
   const [openPo, setOpenPo] = useState<string | null>(null);
@@ -610,6 +627,32 @@ export default function DashboardPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `armorlube-coating-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const today = todayInPhoenix();
+  const lotOT = useMemo(
+    () => lotOnTime(statuses, lotPrio, today),
+    [statuses, lotPrio, today]
+  );
+  const poOT = useMemo(
+    () => poOnTime(poStatusRows, data?.steps ?? [], poPrio, today),
+    [poStatusRows, data, poPrio, today]
+  );
+  const ot = otKind === "lots" ? lotOT : poOT;
+  const otSum = useMemo(() => onTimeSummary(ot), [ot]);
+  const otWeeks = useMemo(() => onTimeByWeek(ot), [ot]);
+  const otLate = useMemo(() => lateness(ot), [ot]);
+  const otRisk = useMemo(() => atRisk(ot), [ot]);
+
+  function exportOnTime() {
+    const csv = toOnTimeCsv(ot, otKind === "lots" ? "Lot" : "PO");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `armorlube-on-time-${otKind}-${from}-to-${to}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1239,6 +1282,13 @@ export default function DashboardPage() {
             <button aria-pressed={tab === "bypo"} onClick={() => setTab("bypo")}>
               <ListOrdered size={15} />
               By PO
+            </button>
+            <button
+              aria-pressed={tab === "ontime"}
+              onClick={() => setTab("ontime")}
+            >
+              <CalendarCheck size={15} />
+              On time
             </button>
             <button
               aria-pressed={tab === "coating"}
@@ -2139,6 +2189,214 @@ export default function DashboardPage() {
               </ChartBlock>
             </div>
 
+          </div>
+        )}
+
+        {tab === "ontime" && (
+          <div className="stack">
+            <div className="row">
+              <div className="seg">
+                <button
+                  aria-pressed={otKind === "lots"}
+                  onClick={() => setOtKind("lots")}
+                >
+                  <Boxes size={15} />
+                  Lots
+                </button>
+                <button
+                  aria-pressed={otKind === "pos"}
+                  onClick={() => setOtKind("pos")}
+                >
+                  <FileText size={15} />
+                  Orders
+                </button>
+              </div>
+              <p className="hint" style={{ margin: 0, maxWidth: "62ch" }}>
+                {otKind === "lots"
+                  ? "A lot is complete when process out is recorded at Defixturing & Inspection."
+                  : "An order is complete when process out is recorded at Oil/Shipping."}{" "}
+                Only work with a due date is counted, so undated work never
+                inflates the rate.
+              </p>
+              <div className="spacer" />
+              <button className="btn sm" onClick={exportOnTime}>
+                <Download size={15} />
+                CSV
+              </button>
+            </div>
+
+            <div className="grid-4">
+              <div className="stat">
+                <div className="k">On time rate</div>
+                <div className="v">{otSum.completed ? `${otSum.rate}%` : "no data"}</div>
+                <div className="hint">
+                  {otSum.onTime} of {otSum.completed} finished on or before due
+                </div>
+              </div>
+              <div className="stat">
+                <div className="k">Late</div>
+                <div className="v">{otSum.late}</div>
+                <div className="hint">
+                  {otSum.late
+                    ? `averaging ${otSum.avgDaysLate} days over`
+                    : "none finished late"}
+                </div>
+              </div>
+              <div className="stat">
+                <div className="k">Overdue now</div>
+                <div className="v" style={{ color: otSum.overdue ? "#ff9a9d" : undefined }}>
+                  {otSum.overdue}
+                </div>
+                <div className="hint">Past due and still not finished</div>
+              </div>
+              <div className="stat">
+                <div className="k">Open with a date</div>
+                <div className="v">{otSum.open}</div>
+                <div className="hint">Not yet due</div>
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <ChartBlock
+                title="On time rate by week"
+                description={
+                  <>
+                    Of everything finished that week with a due date, how much
+                    came in on or before it. Grouped by the week it{" "}
+                    <strong>finished</strong>, not the week it was due, so a
+                    late lot counts against the week it actually went out.
+                  </>
+                }
+                rows={otWeeks}
+                columns={["On time %", "Completed"]}
+                unit="count"
+              >
+                <DayBars data={otWeeks} series={["On time %"]} unit="%" />
+              </ChartBlock>
+
+              <ChartBlock
+                title="What is at risk right now"
+                description={
+                  <>
+                    Everything still open with a due date, by how close it is.
+                    Overdue is past its date and not finished yet, which is the
+                    list worth chasing today.
+                  </>
+                }
+                rows={otRisk}
+                columns={["Items"]}
+                unit="count"
+              >
+                <DayBars data={otRisk} series={["Items"]} unit="" />
+              </ChartBlock>
+            </div>
+
+            <ChartBlock
+              title="How early or late work landed"
+              description={
+                <>
+                  Each finished item placed by how many days before or after its
+                  due date it went out. A tall bar just left of{" "}
+                  <strong>On the day</strong> is healthy. Anything building up
+                  on the right is where the misses are.
+                </>
+              }
+              rows={otLate}
+              columns={["Early", "On time", "Late"]}
+              unit="count"
+            >
+              <DayBars
+                data={otLate}
+                series={["Early", "On time", "Late"]}
+                stacked
+                unit=""
+                angled
+              />
+            </ChartBlock>
+
+            <div className="panel">
+              <div className="row" style={{ marginBottom: 10 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  Every {otKind === "lots" ? "lot" : "order"} with a due date
+                </h2>
+                <div className="spacer" />
+                <span className="badge">{ot.length} rows</span>
+              </div>
+              {ot.length === 0 ? (
+                <div className="empty">
+                  Nothing in this range has a due date yet. Set one from the{" "}
+                  {otKind === "lots" ? "By Lots" : "By PO"} tab.
+                </div>
+              ) : (
+                <div className="table-wrap scroll-y" style={{ maxHeight: 560 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>{otKind === "lots" ? "Lot" : "PO"}</th>
+                        <th>Due</th>
+                        <th>Completed</th>
+                        <th>Early or late</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...ot]
+                        .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0))
+                        .map((r) => (
+                          <tr
+                            key={r.ref}
+                            className="clickable"
+                            onClick={() => {
+                              if (otKind === "lots") {
+                                setOpenLot(r.ref);
+                                setTab("lots");
+                              } else {
+                                setOpenPo(r.ref);
+                                setTab("bypo");
+                              }
+                            }}
+                          >
+                            <td>
+                              <span className="row-link mono">{r.ref}</span>
+                              {r.hot && (
+                                <Flame
+                                  size={13}
+                                  className="flame"
+                                  style={{ marginLeft: 6, verticalAlign: -2 }}
+                                />
+                              )}
+                            </td>
+                            <td className="mono">{r.due}</td>
+                            <td className="mono">{r.completedDay ?? ""}</td>
+                            <td>
+                              {r.daysLate === null
+                                ? ""
+                                : r.daysLate === 0
+                                ? "on the day"
+                                : r.daysLate < 0
+                                ? `${-r.daysLate}d early`
+                                : `${r.daysLate}d ${r.completedAt ? "late" : "over"}`}
+                            </td>
+                            <td>
+                              <span
+                                className={`badge ${
+                                  r.status === "late" || r.status === "overdue"
+                                    ? "bad"
+                                    : r.status === "open"
+                                    ? "info"
+                                    : "ok"
+                                }`}
+                              >
+                                {r.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
