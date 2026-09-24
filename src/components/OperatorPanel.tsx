@@ -23,6 +23,7 @@ import { openSegment } from "@/lib/segments";
 import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
+import { handOff, recordToActOn, closeOpenFor } from "@/lib/handoff";
 import EndConfirm from "./EndConfirm";
 import { PriorityMark, PriorityRow } from "./PriorityControls";
 import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
@@ -139,24 +140,20 @@ export default function OperatorPanel({
     return () => clearInterval(t);
   }, [loadHere]);
 
+  /**
+   * The record to act on at this step: whichever has a timer running, and
+   * only otherwise the newest. Taking the newest pass blindly left an older
+   * record's timer running unseen underneath the one on screen.
+   */
   const lookup = useCallback(async () => {
     if (!LOT_PATTERN.test(lotId)) {
       setRecord(null);
       setSegments([]);
       return;
     }
-    const { data } = await supabase
-      .from("logs")
-      .select("*")
-      .eq("step_id", step.id)
-      .eq("lot_id", lotId)
-      .is("deleted_at", null)
-      .order("pass_no", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(1);
-    const found = data?.length ? (data[0] as LogRow) : null;
+    const { record: found, segments: segs } = await recordToActOn(lotId, step.id);
     setRecord(found);
-    setSegments(found ? await loadSegments({ kind: "log", id: found.id }) : []);
+    setSegments(segs);
   }, [lotId, step.id]);
 
   useEffect(() => {
@@ -302,6 +299,7 @@ export default function OperatorPanel({
         a === "start" ? "process_in" : a === "pause" ? "back_to_queue" : "process_out";
       const plan = planAction(segments, action, true, step);
       const ts = new Date().toISOString();
+      if (plan.open) await closeOpenFor(lotId, ts, crew, target.id);
       const res = await applyPlan(plan, { kind: "log", id: target.id }, ts, crew);
 
       const said =
@@ -329,80 +327,22 @@ export default function OperatorPanel({
   }
 
   /** Same handoff the admin view performs. */
+  /** One shared handoff, so the operator and admin screens cannot drift. */
   async function routeTo(choice: RouteChoice) {
     if (!routing) return;
     setRouteBusy(true);
     try {
-      const target = choice.target;
-      const entryKind = target.has_queue ? "queue" : "process";
-      const { data } = await supabase
-        .from("logs")
-        .select("*")
-        .eq("step_id", target.id)
-        .eq("lot_id", routing.lot)
-        .is("deleted_at", null)
-        .order("pass_no", { ascending: false })
-        .limit(1);
-      const found = data?.length ? (data[0] as LogRow) : null;
-      const foundSegs = found
-        ? await loadSegments({ kind: "log", id: found.id })
-        : [];
-
-      let destId: string;
-      if (choice.rework || foundSegs.length > 0) {
-        const { data: made, error } = await supabase
-          .from("logs")
-          .insert({
-            step_id: target.id,
-            operator_id: crew[0] ?? null,
-            lot_id: routing.lot,
-            log_date: todayInPhoenix(),
-            blast_type: target.has_blast_type ? choice.blastType : null,
-            pass_no: (found?.pass_no ?? 0) + 1,
-            auto_from_step_id: step.id,
-          })
-          .select()
-          .single();
-        if (error || !made) {
-          onToast("Could not send it on. Check the connection.");
-          return;
-        }
-        destId = (made as LogRow).id;
-      } else if (found) {
-        destId = found.id;
-        await supabase
-          .from("logs")
-          .update({ auto_from_step_id: step.id })
-          .eq("id", found.id);
-      } else {
-        const { data: made, error } = await supabase
-          .from("logs")
-          .insert({
-            step_id: target.id,
-            operator_id: crew[0] ?? null,
-            lot_id: routing.lot,
-            log_date: todayInPhoenix(),
-            blast_type: target.has_blast_type ? choice.blastType : null,
-            pass_no: 1,
-            auto_from_step_id: step.id,
-          })
-          .select()
-          .single();
-        if (error || !made) {
-          onToast("Could not send it on. Check the connection.");
-          return;
-        }
-        destId = (made as LogRow).id;
-      }
-
-      await supabase.from("segments").insert({
-        log_id: destId,
-        kind: entryKind,
-        started_at: routing.stamp,
-        started_by: crew,
+      const res = await handOff({
+        lotId: routing.lot,
+        fromStepId: step.id,
+        target: choice.target,
+        rework: choice.rework,
+        stamp: routing.stamp,
+        crew,
+        blastType: choice.blastType,
       });
-
-      onToast(`${routing.lot} sent to ${target.step_name}`);
+      onToast(res.message);
+      if (!res.ok) return;
       setRouting(null);
       setLotId("");
       await loadHere();

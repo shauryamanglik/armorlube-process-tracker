@@ -52,6 +52,7 @@ import { loadPriorities, type PriorityMap } from "@/lib/priority";
 import LotPicker, { type LotHere, type LotState } from "./LotPicker";
 import PhaseControls, { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
+import { handOff, recordToActOn, closeOpenFor } from "@/lib/handoff";
 
 type Props = {
   step: Step;
@@ -185,25 +186,20 @@ export default function StepPanel({
    * capped recent list instead would miss an older lot and quietly create a
    * duplicate record for it.
    */
+  /**
+   * The record to act on at this step: whichever has a timer running, and
+   * only otherwise the newest. Taking the newest pass blindly left an older
+   * record's timer running unseen underneath the one on screen.
+   */
   const lookup = useCallback(async () => {
     if (!LOT_PATTERN.test(lotId)) {
       setRecord(null);
       setSegments([]);
       return;
     }
-    const { data } = await supabase
-      .from("logs")
-      .select("*")
-      .eq("step_id", step.id)
-      .eq("lot_id", lotId)
-      .is("deleted_at", null)
-      .order("pass_no", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    const found = data && data.length ? (data[0] as LogRow) : null;
+    const { record: found, segments: segs } = await recordToActOn(lotId, step.id);
     setRecord(found);
-    setSegments(found ? await loadSegments({ kind: "log", id: found.id }) : []);
+    setSegments(segs);
   }, [lotId, step.id]);
 
   useEffect(() => {
@@ -306,6 +302,7 @@ export default function StepPanel({
         return;
       }
       const ts = stamp();
+      if (plan.open) await closeOpenFor(lotId, ts, crew, target.id);
       const res = await applyPlan(plan, { kind: "log", id: target.id }, ts, crew);
 
       onToast(
@@ -344,101 +341,25 @@ export default function StepPanel({
    * Hand the lot to the next step, starting its first interval at the same
    * instant this one ended so queue time measures the real gap.
    */
+  /** One shared handoff, so the operator and admin screens cannot drift. */
   async function routeTo(choice: RouteChoice) {
     if (!routing) return;
-    if (choice.target.tracks_lots === false) {
-      onToast(`${choice.target.step_name} does not handle lots.`);
-      return;
-    }
     setRouteBusy(true);
     try {
-      const target = choice.target;
-      const entryKind = target.has_queue ? "queue" : "process";
-
-      const { data } = await supabase
-        .from("logs")
-        .select("*")
-        .eq("step_id", target.id)
-        .eq("lot_id", routing.lot)
-        .is("deleted_at", null)
-        .order("pass_no", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      const found = data && data.length ? (data[0] as LogRow) : null;
-      const foundSegs = found
-        ? await loadSegments({ kind: "log", id: found.id })
-        : [];
-
-      let destId: string;
-
-      // Rework, or a target that already has intervals, opens a new pass so
-      // the original run stays intact.
-      if (choice.rework || foundSegs.length > 0) {
-        const { data: made, error } = await supabase
-          .from("logs")
-          .insert({
-            step_id: target.id,
-            operator_id: crew[0] ?? null,
-            lot_id: routing.lot,
-            log_date: todayInPhoenix(),
-            blast_type: target.has_blast_type ? choice.blastType : null,
-            pass_no: (found?.pass_no ?? 0) + 1,
-            auto_from_step_id: step.id,
-          })
-          .select()
-          .single();
-        if (error || !made) {
-          onToast("Could not hand the lot over. Check the connection.");
-          return;
-        }
-        destId = (made as LogRow).id;
-      } else if (found) {
-        destId = found.id;
-        const patch: Record<string, unknown> = { auto_from_step_id: step.id };
-        if (target.has_blast_type && choice.blastType && !found.blast_type) {
-          patch.blast_type = choice.blastType;
-        }
-        await supabase.from("logs").update(patch).eq("id", found.id);
-      } else {
-        const { data: made, error } = await supabase
-          .from("logs")
-          .insert({
-            step_id: target.id,
-            operator_id: crew[0] ?? null,
-            lot_id: routing.lot,
-            log_date: todayInPhoenix(),
-            blast_type: target.has_blast_type ? choice.blastType : null,
-            pass_no: 1,
-            auto_from_step_id: step.id,
-          })
-          .select()
-          .single();
-        if (error || !made) {
-          onToast("Could not hand the lot over. Check the connection.");
-          return;
-        }
-        destId = (made as LogRow).id;
-      }
-
-      const { error: segErr } = await supabase.from("segments").insert({
-        log_id: destId,
-        kind: entryKind,
-        started_at: routing.stamp,
-        started_by: crew,
+      const res = await handOff({
+        lotId: routing.lot,
+        fromStepId: step.id,
+        target: choice.target,
+        rework: choice.rework,
+        stamp: routing.stamp,
+        crew,
+        blastType: choice.blastType,
       });
-      if (segErr) {
-        onToast("Handoff saved but the timer may need checking.");
-      } else {
-        onToast(
-          choice.rework
-            ? `Lot ${routing.lot} sent back to ${target.step_name} as a new pass.`
-            : `Lot ${routing.lot} sent to ${target.step_name}.`
-        );
-      }
-
+      onToast(res.message);
+      if (!res.ok) return;
       setRouting(null);
       setLotId("");
+      await Promise.all([loadRecent(), loadHere()]);
       onLotsChanged();
     } finally {
       setRouteBusy(false);

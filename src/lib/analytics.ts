@@ -865,17 +865,46 @@ export function lotStatuses(rows: Enriched[], steps: Step[]): LotStatus[] {
 
   return Array.from(byLot.entries())
     .map(([lot, list]) => {
-      const pass = Math.max(...list.map((r) => r.log.pass_no));
-      const current = list
-        .filter((r) => r.log.pass_no === pass)
-        .sort((a, b) => (b.step?.sort_order ?? 0) - (a.step?.sort_order ?? 0))[0];
+      /**
+       * Where a lot is comes from what happened to it most recently, not from
+       * its pass number. Pass used to decide it, and since a forward move
+       * could land at a lower pass than the step before, a reworked lot
+       * never appeared to leave the step it was reworked at.
+       *
+       * So: the record holding the newest open timer, and failing that the
+       * record whose latest timer closed most recently.
+       */
+      const touch = (r: Enriched) => {
+        let open: string | null = null;
+        let closed: string | null = null;
+        for (const sg of r.segments) {
+          if (!sg.ended_at) {
+            if (!open || sg.started_at > open) open = sg.started_at;
+          } else if (!closed || sg.ended_at > closed) {
+            closed = sg.ended_at;
+          }
+        }
+        return { open, closed };
+      };
+      const ranked = [...list].sort((a, b) => {
+        const ta = touch(a);
+        const tb = touch(b);
+        if (Boolean(ta.open) !== Boolean(tb.open)) return ta.open ? -1 : 1;
+        const ka = ta.open ?? ta.closed ?? a.log.updated_at;
+        const kb = tb.open ?? tb.closed ?? b.log.updated_at;
+        return kb.localeCompare(ka);
+      });
+      const current = ranked[0];
+      const pass = current?.log.pass_no ?? 1;
 
       const segs = current?.segments ?? [];
       const openQueue = segs.find((s) => s.kind === "queue" && !s.ended_at);
       const openProcess = segs.find((s) => s.kind === "process" && !s.ended_at);
-      const finishedHere = current?.step?.is_final && segs.some(
-        (s) => s.kind === "process" && s.ended_at
-      );
+      const finishedHere =
+        !openQueue &&
+        !openProcess &&
+        current?.step?.is_final &&
+        segs.some((s) => s.kind === "process" && s.ended_at);
 
       const state: LotStatus["state"] = openProcess
         ? "In process"

@@ -34,6 +34,7 @@ import {
   type Action,
 } from "@/lib/segmentActions";
 import CrewPicker from "./CrewPicker";
+import { closeOpenForPo } from "@/lib/handoff";
 import RecordEditor, { type EditorTarget } from "./RecordEditor";
 import { PriorityMark, PriorityRow } from "./PriorityControls";
 import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
@@ -343,6 +344,7 @@ export default function PoPanel({
         return;
       }
       const ts = new Date().toISOString();
+      if (plan.open) await closeOpenForPo(poNumber, ts, crew, target.id);
       const res = await applyPlan(plan, { kind: "po", id: target.id }, ts, crew);
 
       const handedOn =

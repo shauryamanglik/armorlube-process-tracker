@@ -14,6 +14,7 @@ import {
   type Step,
 } from "@/lib/types";
 import { formatClock, todayInPhoenix } from "@/lib/time";
+import { closeOpenForPo } from "@/lib/handoff";
 import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
@@ -226,6 +227,7 @@ export default function OperatorPoPanel({
           : "process_out";
       const plan = planAction(segments, action, true, step);
       const ts = new Date().toISOString();
+      if (plan.open) await closeOpenForPo(poNumber, ts, crew, target.id);
       const res = await applyPlan(plan, { kind: "po", id: target.id }, ts, crew);
 
       const said =
