@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   AlertTriangle,
   Plus,
+  StickyNote,
   Cog,
   CornerUpLeft,
   Hourglass,
@@ -89,7 +90,9 @@ function RecordCard({
   onDelete,
   onRestore,
   extra,
+  note,
 }: {
+  note?: string | null;
   title: string;
   area?: string;
   date: string;
@@ -141,6 +144,13 @@ function RecordCard({
       </div>
 
       {extra}
+
+      {note && note.trim() && (
+        <div className="drawer-note">
+          <StickyNote size={14} />
+          <span>{note}</span>
+        </div>
+      )}
 
       {warnings.length > 0 && (
         <div className="stack" style={{ gap: 5, margin: "8px 0 10px" }}>
@@ -293,9 +303,17 @@ export function LotDetail({
             onEdit={onEdit ? () => onEdit(r.log.id) : undefined}
             onDelete={onDelete ? () => onDelete(r.log.id) : undefined}
             onRestore={onRestore ? () => onRestore(r.log.id) : undefined}
+            note={r.log.notes}
             extra={
-              r.log.blast_type ? (
-                <span className="badge">{r.log.blast_type}</span>
+              r.log.blast_type || r.log.emperion ? (
+                <span className="row" style={{ gap: 6 }}>
+                  {r.log.blast_type && (
+                    <span className="badge">{r.log.blast_type}</span>
+                  )}
+                  {r.log.emperion && (
+                    <span className="badge info mono">Emperion {r.log.emperion}</span>
+                  )}
+                </span>
               ) : null
             }
           />

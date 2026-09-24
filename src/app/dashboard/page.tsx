@@ -12,6 +12,7 @@ import {
   Clock3,
   Download,
   CalendarCheck,
+  StickyNote,
   Factory,
   Flame,
   FileSpreadsheet,
@@ -174,9 +175,9 @@ export default function DashboardPage() {
    *  away and the header shows what is currently narrowing the numbers. */
   const [filtersOpen, setFiltersOpen] = useState(false);
   /** Narrow the lots list to live, completed, or those that skipped a step. */
-  const [lotView, setLotView] = useState<"all" | "live" | "done" | "skipped">(
-    "all"
-  );
+  const [lotView, setLotView] = useState<
+    "all" | "live" | "done" | "skipped" | "notes"
+  >("all");
   const [poView, setPoView] = useState<"all" | "live" | "done" | "partial">(
     "all"
   );
@@ -403,6 +404,10 @@ export default function DashboardPage() {
     if (lotView === "done") return statuses.filter((s) => !s.live);
     if (lotView === "skipped")
       return statuses.filter((s) => s.skipped.length > 0);
+    if (lotView === "notes")
+      return statuses.filter((s) =>
+        s.records.some((r) => r.log.notes && r.log.notes.trim())
+      );
     return statuses;
   }, [statuses, lotView]);
 
@@ -1600,6 +1605,20 @@ export default function DashboardPage() {
                       {statuses.filter((s) => s.skipped.length > 0).length}
                     </span>
                   </button>
+                  <button
+                    aria-pressed={lotView === "notes"}
+                    onClick={() => setLotView("notes")}
+                  >
+                    <StickyNote size={15} />
+                    Has notes
+                    <span className="badge">
+                      {
+                        statuses.filter((s) =>
+                          s.records.some((r) => r.log.notes && r.log.notes.trim())
+                        ).length
+                      }
+                    </span>
+                  </button>
                 </div>
               </div>
 
@@ -1616,6 +1635,7 @@ export default function DashboardPage() {
                   <thead>
                     <tr>
                       <th>Lot</th>
+                      <th>Notes</th>
                       <th>Due</th>
                       <th>Where</th>
                       <th>State</th>
@@ -1638,6 +1658,27 @@ export default function DashboardPage() {
                       >
                         <td>
                           <span className="row-link mono">{l.lot}</span>
+                        </td>
+                        <td>
+                          {(() => {
+                            const n = l.records.filter(
+                              (r) => r.log.notes && r.log.notes.trim()
+                            ).length;
+                            return n > 0 ? (
+                              <span
+                                className="note-pill"
+                                title={l.records
+                                  .filter((r) => r.log.notes && r.log.notes.trim())
+                                  .map((r) => `${r.step?.step_name}: ${r.log.notes}`)
+                                  .join("\n")}
+                              >
+                                <StickyNote size={12} />
+                                {n}
+                              </span>
+                            ) : (
+                              ""
+                            );
+                          })()}
                         </td>
                         <td>
                           {lotPrio.get(l.lot)?.hot || lotPrio.get(l.lot)?.due_date ? (

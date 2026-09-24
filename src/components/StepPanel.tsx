@@ -48,6 +48,7 @@ import {
 import CrewPicker from "./CrewPicker";
 import RecordEditor, { type EditorTarget } from "./RecordEditor";
 import { PriorityRow } from "./PriorityControls";
+import NoteButton from "./NoteButton";
 import { loadPriorities, type PriorityMap } from "@/lib/priority";
 import LotPicker, { type LotHere, type LotState } from "./LotPicker";
 import PhaseControls, { liveState } from "./PhaseControls";
@@ -509,6 +510,16 @@ export default function StepPanel({
           entryStep={Boolean(step.is_entry)}
           prio={prio}
         />
+        {lotValid && !step.release_only && (
+          <div style={{ marginTop: 10 }}>
+            <NoteButton
+              lotId={lotId}
+              recordId={record?.id ?? null}
+              stepName={step.step_name}
+              onSaved={() => void loadRecent()}
+            />
+          </div>
+        )}
         {step.is_entry && lotValid && (
           <div style={{ marginTop: 12 }}>
             <PriorityRow

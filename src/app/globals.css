@@ -3167,3 +3167,124 @@ tbody tr.clickable:hover {
   background: var(--surface-2);
   padding: 4px 14px 14px;
 }
+
+/* ============================================================
+   Notes
+   A small button beside the lot number and a dialog for the
+   rest, so notes add no height to the operator screen.
+   ============================================================ */
+
+.note-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  flex: none;
+}
+
+.note-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.note-btn.has {
+  border-color: rgba(240, 169, 46, 0.5);
+  background: rgba(240, 169, 46, 0.12);
+  color: var(--hold);
+  font-weight: 600;
+}
+
+.note-count {
+  background: var(--info);
+  color: #07101f;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+}
+
+.note-modal {
+  max-width: 520px;
+}
+
+.note-text {
+  resize: vertical;
+  min-height: 96px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.note-earlier {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.note-item {
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+  flex-shrink: 0;
+}
+
+.note-where {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+
+.note-body {
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.release-note {
+  margin-top: 12px;
+  font-size: 15px;
+}
+
+.drawer-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 10px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(240, 169, 46, 0.08);
+  border: 1px solid rgba(240, 169, 46, 0.28);
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.drawer-note svg {
+  color: var(--hold);
+  flex: none;
+  margin-top: 2px;
+}
+
+.note-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(240, 169, 46, 0.14);
+  color: var(--hold);
+  cursor: help;
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cog, Factory, Hourglass, Search, Send, Wind } from "lucide-react";
+import { Cog, Factory, Hourglass, Search, Send, StickyNote, Wind } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   exitField,
@@ -25,6 +25,7 @@ import { liveState } from "./PhaseControls";
 import RouteDialog, { type RouteChoice } from "./RouteDialog";
 import { handOff, recordToActOn, closeOpenFor } from "@/lib/handoff";
 import EndConfirm from "./EndConfirm";
+import NoteButton from "./NoteButton";
 import { PriorityMark, PriorityRow } from "./PriorityControls";
 import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
@@ -70,6 +71,9 @@ export default function OperatorPanel({
     null
   );
   const [prio, setPrio] = useState<PriorityMap>(new Map());
+  /** A note typed while creating a lot, saved with it when it is sent. */
+  const [releaseNote, setReleaseNote] = useState("");
+  const [showNote, setShowNote] = useState(false);
 
   const loadPrio = useCallback(async () => {
     setPrio(await loadPriorities("lot"));
@@ -218,6 +222,12 @@ export default function OperatorPanel({
       let id: string;
       if (existing?.length) {
         id = existing[0].id as string;
+        if (releaseNote.trim()) {
+          await supabase
+            .from("logs")
+            .update({ notes: releaseNote.trim() })
+            .eq("id", id);
+        }
       } else {
         const { data, error } = await supabase
           .from("logs")
@@ -227,6 +237,7 @@ export default function OperatorPanel({
             lot_id: lot,
             log_date: todayInPhoenix(),
             pass_no: 1,
+            notes: releaseNote.trim() || null,
           })
           .select()
           .single();
@@ -254,6 +265,8 @@ export default function OperatorPanel({
       }
 
       setTyped("");
+      setReleaseNote("");
+      setShowNote(false);
       setLotId(lot);
       await loadHere();
       onLotsChanged();
@@ -388,6 +401,25 @@ export default function OperatorPanel({
             others={lots.map((l) => l.lot_id)}
             onChanged={() => void loadPrio()}
           />
+
+          {showNote ? (
+            <input
+              className="input release-note"
+              placeholder="Note for the floor, optional"
+              value={releaseNote}
+              autoFocus
+              onChange={(e) => setReleaseNote(e.target.value)}
+            />
+          ) : (
+            <button
+              className="note-btn"
+              style={{ marginTop: 12 }}
+              onClick={() => setShowNote(true)}
+            >
+              <StickyNote size={16} />
+              Add note
+            </button>
+          )}
         </div>
 
         <button
@@ -444,6 +476,13 @@ export default function OperatorPanel({
               "Choose a lot"
             )}
           </span>
+          {lotValid && (
+            <NoteButton
+              lotId={lotId}
+              recordId={record?.id ?? null}
+              stepName={step.step_name}
+            />
+          )}
           <div className="op-scope">
             <button
               aria-pressed={scope === "here"}
