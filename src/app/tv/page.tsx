@@ -10,6 +10,7 @@ import {
   type FloorGroup,
 } from "@/lib/analytics";
 import { DEFAULT_RULES, formatDuration, todayInPhoenix } from "@/lib/time";
+import { shortColumn } from "@/lib/labels";
 import type {
   LogRow,
   Operator,
@@ -117,7 +118,9 @@ function Column({
 
   return (
     <div className="tv-col">
-      <p className="tv-colname">{group.name}</p>
+      <p className="tv-colname" title={group.name}>
+        {shortColumn(group.name)}
+      </p>
       <p className="tv-counts">
         {group.items.length > 0 ? (
           <span className="tv-live">{group.items.length} here</span>

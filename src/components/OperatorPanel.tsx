@@ -26,6 +26,7 @@ import RouteDialog, { type RouteChoice } from "./RouteDialog";
 import { handOff, recordToActOn, closeOpenFor } from "@/lib/handoff";
 import EndConfirm from "./EndConfirm";
 import NoteButton from "./NoteButton";
+import RefChip, { chipMinWidth } from "./RefChip";
 import { PriorityMark, PriorityRow } from "./PriorityControls";
 import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
@@ -501,7 +502,14 @@ export default function OperatorPanel({
 
         {/* Fixed height, so the buttons below never move off screen no
             matter how many lots are lined up. */}
-        <div className="op-lot-list">
+        <div
+          className="op-lot-list"
+          style={{
+            gridTemplateColumns: `repeat(auto-fill, minmax(${chipMinWidth(
+              listed.map((l) => l.lot_id)
+            )}px, 1fr))`,
+          }}
+        >
           {listed.length === 0 ? (
             <div className="op-none">
               {scope === "here"
@@ -510,26 +518,17 @@ export default function OperatorPanel({
             </div>
           ) : (
             listed.map((l) => (
-              <button
+              <RefChip
                 key={l.lot_id}
-                className="op-lot"
-                aria-pressed={lotId === l.lot_id}
+                refId={l.lot_id}
+                tone={l.tone}
+                since={l.since}
+                where={l.since ? undefined : l.label}
+                priority={prio.get(l.lot_id)}
+                today={today}
+                selected={lotId === l.lot_id}
                 onClick={() => setLotId(l.lot_id)}
-              >
-                <span className="mono op-lot-id">{l.lot_id}</span>
-                <PriorityMark
-                  hot={prio.get(l.lot_id)?.hot}
-                  due={dueLabel(prio.get(l.lot_id)?.due_date ?? null, today)}
-                />
-                <span className={`op-tag ${l.tone}`}>
-                  {l.tone === "process" ? (
-                    <Cog size={12} />
-                  ) : l.tone === "queue" ? (
-                    <Hourglass size={12} />
-                  ) : null}
-                  {l.since ? formatClock(l.since) : l.label}
-                </span>
-              </button>
+              />
             ))
           )}
         </div>

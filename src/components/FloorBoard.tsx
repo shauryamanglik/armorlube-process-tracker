@@ -16,6 +16,7 @@ import {
 import type { FloorGroup } from "@/lib/analytics";
 import { formatDuration, formatClock, formatStamp } from "@/lib/time";
 import { byPriority, type PriorityMap } from "@/lib/priority";
+import { shortColumn } from "@/lib/labels";
 import { Flame } from "lucide-react";
 
 /**
@@ -227,7 +228,10 @@ function FloorColumn({
   return (
     <div className="floor-col">
       <div className="floor-col-head">
-        <span className="fc-name">{group.name}</span>
+        <span className="fc-name" title={group.name}>
+          <span className="fc-full">{group.name}</span>
+          <span className="fc-short">{shortColumn(group.name)}</span>
+        </span>
         <span className="fc-count">
           {group.runningCount > 0 && (
             <span className="fc-live" title="Here right now">

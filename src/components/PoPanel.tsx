@@ -493,13 +493,7 @@ export default function PoPanel({
                     onClick={() => setPoNumber(r.po_number)}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="lid mono">
-                        {r.po_number}
-                        <PriorityMark
-                          hot={prio.get(r.po_number)?.hot}
-                          due={dueLabel(prio.get(r.po_number)?.due_date ?? null, todayStr)}
-                        />
-                      </div>
+                      <div className="lid mono">{r.po_number}</div>
                       <div className="where">
                         {r.openHere && r.state?.since
                           ? `${r.state.label} since ${formatStamp(r.state.since)}`
@@ -510,6 +504,10 @@ export default function PoPanel({
                                 : ""
                             }`
                           : `Last at ${r.last_step}`}
+                      <PriorityMark
+                          hot={prio.get(r.po_number)?.hot}
+                          due={dueLabel(prio.get(r.po_number)?.due_date ?? null, todayStr)}
+                        />
                       </div>
                     </div>
                     {r.openHere && r.state ? (

@@ -1877,7 +1877,7 @@ tbody tr.clickable:hover {
   padding-bottom: 7px;
 }
 
-.fc-name {
+.floor-shell.full .fc-name {
   font-size: 17px;
   color: var(--text);
 }
@@ -3287,4 +3287,193 @@ tbody tr.clickable:hover {
   background: rgba(240, 169, 46, 0.14);
   color: var(--hold);
   cursor: help;
+}
+
+/* ============================================================
+   Reference chip
+   The number owns line one. Line two holds state and time on the
+   left and the due date on the right, so each end has one job.
+   ============================================================ */
+
+.refchip {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 62px;
+  padding: 10px 13px 10px 15px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, #202023 0%, #1b1b1e 100%);
+  text-align: left;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.12s ease, background 0.12s ease,
+    transform 0.08s ease;
+}
+
+.refchip:hover {
+  background: linear-gradient(180deg, #252528 0%, #1f1f22 100%);
+  border-color: rgba(255, 255, 255, 0.11);
+}
+
+.refchip:active {
+  transform: scale(0.985);
+}
+
+/* the edge is the state, drawn as a soft bar rather than a hard border */
+.refchip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.refchip.queue::before {
+  background: var(--hold);
+}
+
+.refchip.process::before {
+  background: var(--info);
+}
+
+.refchip.ready::before {
+  background: var(--run);
+}
+
+.refchip[aria-pressed="true"] {
+  border-color: rgba(76, 141, 246, 0.7);
+  background: linear-gradient(180deg, #1c2638 0%, #18202e 100%);
+  box-shadow: 0 0 0 3px rgba(76, 141, 246, 0.14);
+}
+
+/* never truncated: the grid is sized to fit the longest one */
+.rc-id {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #f2f2f4;
+  line-height: 1.1;
+}
+
+.rc-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  line-height: 1;
+}
+
+.rc-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc-icon {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.95;
+}
+
+.rc-icon.queue {
+  color: var(--hold);
+}
+
+.rc-icon.process {
+  color: #7eaaff;
+}
+
+.rc-icon.ready {
+  color: var(--run);
+}
+
+.rc-lead {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.rc-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/* due date: always shown, coloured only when it is close */
+.rc-due {
+  font-weight: 700;
+  font-size: 11.5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-due.later {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+
+.rc-due.tomorrow {
+  color: var(--hold);
+}
+
+.rc-due.today {
+  color: #ff9b52;
+}
+
+.rc-due.late {
+  color: #ff7d82;
+}
+
+/* the admin rows keep the number on its own line too */
+.lot-row .where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.lot-row .where .prio-mark {
+  margin-left: 0;
+}
+
+
+/* ---------- column names that fit their column ----------
+   A column shows its full name when there is room and its short
+   name when there is not. The column measures itself, so the same
+   board reads "Defixturing & Inspection" on a wide wall display and
+   "Defixturing" in a narrow dashboard column. */
+
+.floor-col {
+  container-type: inline-size;
+  container-name: fcol;
+}
+
+.fc-name .fc-short {
+  display: none;
+}
+
+@container fcol (max-width: 200px) {
+  .fc-name .fc-full {
+    display: none;
+  }
+  .fc-name .fc-short {
+    display: inline;
+  }
 }

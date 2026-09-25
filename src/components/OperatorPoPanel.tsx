@@ -19,6 +19,7 @@ import { applyPlan, loadSegments, planAction } from "@/lib/segmentActions";
 import { liveState } from "./PhaseControls";
 import { ActionRow, CrewRow, StatusStrip, type OpAction } from "./OperatorShell";
 import EndConfirm from "./EndConfirm";
+import RefChip, { chipMinWidth } from "./RefChip";
 import { PriorityMark, PriorityRow } from "./PriorityControls";
 import { byPriority, dueLabel, loadPriorities, type PriorityMap } from "@/lib/priority";
 
@@ -320,33 +321,31 @@ export default function OperatorPoPanel({
             )}
           </div>
         ) : (
-        <div className="op-lot-list">
+        <div
+          className="op-lot-list"
+          style={{
+            gridTemplateColumns: `repeat(auto-fill, minmax(${chipMinWidth(
+              listed.map((r) => r.po_number)
+            )}px, 1fr))`,
+          }}
+        >
           {listed.length === 0 ? (
             <div className="op-none">
               {scope === "here" ? "Nothing at this station" : "No orders yet"}
             </div>
           ) : (
             listed.map((r) => (
-              <button
+              <RefChip
                 key={r.po_number}
-                className="op-lot"
-                aria-pressed={poNumber === r.po_number}
+                refId={r.po_number}
+                tone={r.ready ? "ready" : r.tone}
+                since={r.since}
+                where={r.since ? undefined : r.ready ? "ready to start" : r.label}
+                priority={prio.get(r.po_number)}
+                today={today}
+                selected={poNumber === r.po_number}
                 onClick={() => setPoNumber(r.po_number)}
-              >
-                <span className="mono op-lot-id">{r.po_number}</span>
-                <PriorityMark
-                  hot={prio.get(r.po_number)?.hot}
-                  due={dueLabel(prio.get(r.po_number)?.due_date ?? null, today)}
-                />
-                <span className={`op-tag ${r.ready ? "ready" : r.tone}`}>
-                  {r.ready ? null : r.tone === "process" ? (
-                    <Cog size={12} />
-                  ) : r.tone === "queue" ? (
-                    <Hourglass size={12} />
-                  ) : null}
-                  {r.since ? formatClock(r.since) : r.label}
-                </span>
-              </button>
+              />
             ))
           )}
         </div>

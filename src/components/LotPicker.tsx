@@ -17,6 +17,7 @@ import { LOT_HINT, LOT_PATTERN } from "@/lib/types";
 import { formatStamp, todayInPhoenix } from "@/lib/time";
 import { byPriority, dueLabel, type PriorityMap } from "@/lib/priority";
 import { PriorityMark } from "./PriorityControls";
+import { shortStep } from "@/lib/labels";
 
 export type LotState =
   | { kind: "empty" }
@@ -176,23 +177,21 @@ export default function LotPicker({
                   onClick={() => onChange(row.lot_id)}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="lid mono">
-                      {row.lot_id}
-                      {prio && (
-                        <PriorityMark
-                          hot={prio.get(row.lot_id)?.hot}
-                          due={dueLabel(prio.get(row.lot_id)?.due_date ?? null, today)}
-                        />
-                      )}
-                    </div>
+                    <div className="lid mono">{row.lot_id}</div>
                     <div className="where">
                       {row.here
                         ? row.here.since
                           ? `${row.here.label} since ${formatStamp(row.here.since)}`
                           : row.here.label
                         : row.info
-                        ? `Last at ${row.info.last_step}, ${row.info.last_area}`
+                        ? `At ${shortStep(row.info.last_step)}`
                         : ""}
+                    {prio && (
+                        <PriorityMark
+                          hot={prio.get(row.lot_id)?.hot}
+                          due={dueLabel(prio.get(row.lot_id)?.due_date ?? null, today)}
+                        />
+                      )}
                     </div>
                   </div>
                   {row.here ? (

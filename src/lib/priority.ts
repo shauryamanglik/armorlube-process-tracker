@@ -106,3 +106,27 @@ export function dueLabel(
   const [, m, d] = date.split("-");
   return { text: `due ${Number(m)}/${Number(d)}`, tone: "ok" };
 }
+
+/**
+ * How pressing a due date is, for colouring on a chip. Only tomorrow, today
+ * and late get colour. Anything further off is shown small and grey, since a
+ * date weeks away changes nothing about what to work next.
+ */
+export type DueLevel = "late" | "today" | "tomorrow" | "later";
+
+export function dueUrgency(
+  date: string | null,
+  today: string
+): { text: string; level: DueLevel } | null {
+  if (!date) return null;
+  const toDay = (d: string) => {
+    const [y, m, dd] = d.split("-").map(Number);
+    return Date.UTC(y, m - 1, dd) / 86400000;
+  };
+  const diff = Math.round(toDay(date) - toDay(today));
+  if (diff < 0) return { text: `${-diff}d late`, level: "late" };
+  if (diff === 0) return { text: "today", level: "today" };
+  if (diff === 1) return { text: "tomorrow", level: "tomorrow" };
+  const [, m, d] = date.split("-");
+  return { text: `${Number(m)}/${Number(d)}`, level: "later" };
+}
